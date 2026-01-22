@@ -1,0 +1,22 @@
+# 股票分析机器人配置示例
+
+# 数据源
+data_source: "yfinance"
+
+# 监控股票列表
+watchlist:
+  - "AAPL"
+  - "MSFT"
+  - "GOOGL"
+  - "TSLA"
+  - "000001.SZ"
+
+# 分析配置
+analysis:
+  period: "1mo"
+  indicators: ["rsi", "macd", "sma"]
+  
+# 日志配置
+logging:
+  level: "INFO"
+  file: "logs/stock_bot.log"

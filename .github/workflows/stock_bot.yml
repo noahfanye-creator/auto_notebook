@@ -1,34 +1,61 @@
 name: 股票分析机器人 🤖
 
 on:
+  # 1. 手动触发
   workflow_dispatch:
     inputs:
       stocks:
-        description: '股票代码'
+        description: '股票代码（空格分隔）'
+        required: false
         default: '600460 300474 300623 300420'
-        required: false
+        type: string
       force_run:
-        description: '强制运行'
-        default: 'true'
+        description: '强制运行（忽略交易时间检查）'
         required: false
+        default: true
+        type: boolean
+  
+  # 2. 定时触发 - A股交易时间
   schedule:
+    # 北京时间 9:00-15:00，每30分钟运行一次
     - cron: '*/30 1-7 * * 1-5'
 
 jobs:
   analyze-stocks:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v3
-      - name: 设置Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      - name: 安装依赖
-        run: |
-          pip install requests pandas numpy matplotlib reportlab akshare pytz
-      - name: 运行分析
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python github_stock_bot.py --telegram
+    - name: 检出代码
+      uses: actions/checkout@v3
+    
+    - name: 设置Python环境
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: 安装依赖
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests pandas numpy reportlab akshare matplotlib pytz
+        # 安装中文字体支持
+        sudo apt-get update
+        sudo apt-get install -y fonts-wqy-zenhei
+    
+    - name: 运行股票分析
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        export TZ='Asia/Shanghai'
+        # 修正了这里的运行参数：从 --telegram 改为 --mode telegram
+        python github_stock_bot.py --mode telegram --stocks '${{ github.event.inputs.stocks }}'
+    
+    - name: 上传分析报告
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: stock-reports
+        path: |
+          reports_*
+          *.zip

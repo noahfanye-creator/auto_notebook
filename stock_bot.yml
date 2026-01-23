@@ -1,180 +1,34 @@
 name: 股票分析机器人 🤖
 
 on:
-  # 1. 手动触发 (修正了这里的缩进)
   workflow_dispatch:
     inputs:
       stocks:
-        description: '股票代码（空格分隔，留空使用默认）'
-        required: false
+        description: '股票代码'
         default: '600460 300474 300623 300420'
-        type: string
-      telegram:
-        description: '发送到Telegram'
         required: false
-        default: true
-        type: boolean
       force_run:
-        description: '强制运行（忽略交易时间检查）'
+        description: '强制运行'
+        default: 'true'
         required: false
-        default: false
-        type: boolean
-  
-  # 2. 定时触发 - A股交易时间 (修正了这里的缩进)
   schedule:
-    # 每30分钟运行一次（北京时间9:00-15:00 = UTC1:00-7:00）
     - cron: '*/30 1-7 * * 1-5'
-    
-    # 每天收盘后总结（北京时间15:30 = UTC7:30）
-    - cron: '30 7 * * 1-5'
-    
-    # 每天开盘前准备（北京时间8:45 = UTC0:45）
-    - cron: '45 0 * * 1-5'
 
 jobs:
   analyze-stocks:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v3
-    
-    - name: 设置Python环境
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-        cache: 'pip'
-    
-    - name: 安装依赖
-      run: |  # run 必须和 name 对齐
-        python -m pip install --upgrade pip
-        pip install requests pandas numpy reportlab akshare matplotlib
-        
-        # 安装中文字体支持
-        sudo apt-get update
-        sudo apt-get install -y fonts-wqy-zenhei
-    
-    - name: 运行股票分析
-      env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      run: |
-        echo "=========================================="
-        echo "🤖 GitHub股票分析机器人"
-        echo "=========================================="
-        
-        # 设置中国时区
-        export TZ='Asia/Shanghai'
-        echo "🕐 当前时间: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-        echo ""
-        
-        # 检查是否为定时任务且需要检查交易时间
-        if [[ "${{ github.event_name }}" == "schedule" && "${{ github.event.inputs.force_run }}" != "true" ]]; then
-          echo "📅 定时任务执行检查..."
-          
-          # 检查是否为A股交易日
-          CURRENT_WEEKDAY=$(date +%u)  # 1=周一, 7=周日
-          CURRENT_HOUR=$(date +%H)
-          
-          echo "  星期: $CURRENT_WEEKDAY"
-          echo "  时间: $CURRENT_HOUR:$(date +%M)"
-          
-          # 检查是否为交易日
-          if [[ $CURRENT_WEEKDAY -ge 1 && $CURRENT_WEEKDAY -le 5 ]]; then
-            # 检查是否为交易时间
-            if [[ $CURRENT_HOUR -ge 9 && $CURRENT_HOUR -lt 15 ]]; then
-              echo "✅ 检测到A股交易时间，继续执行..."
-              CHECK_HOURS_FLAG="--check-hours"
-            else
-              echo "⏸️  非交易时间，跳过执行"
-              exit 0
-            fi
-          else
-            echo "⏸️  非交易日，跳过执行"
-            exit 0
-          fi
-        else
-          echo "🔧 手动触发或强制运行，跳过时间检查"
-          CHECK_HOURS_FLAG=""
-        fi
-        
-        # 构建运行命令
-        CMD="python github_stock_bot.py"
-        
-        # 添加股票代码
-        if [[ -n "${{ github.event.inputs.stocks }}" ]]; then
-          echo "📝 使用指定股票: ${{ github.event.inputs.stocks }}"
-          CMD="$CMD --stocks '${{ github.event.inputs.stocks }}'"
-        else
-          echo "📝 使用默认股票"
-        fi
-        
-        # 添加Telegram参数
-        if [[ "${{ github.event.inputs.telegram }}" == "true" || "${{ github.event_name }}" == "schedule" ]]; then
-          echo "🤖 启用Telegram通知"
-          
-          # 检查配置
-          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
-            echo "⚠️  Telegram配置不完整"
-            echo "   请检查GitHub Secrets设置"
-          else
-            CMD="$CMD --telegram"
-          fi
-        else
-          echo "🔕 禁用Telegram通知"
-        fi
-        
-        # 添加时间检查参数
-        if [[ -n "$CHECK_HOURS_FLAG" ]]; then
-          CMD="$CMD $CHECK_HOURS_FLAG"
-        fi
-        
-        echo ""
-        echo "🚀 执行命令: $CMD"
-        echo "=========================================="
-        
-        # 执行分析
-        eval $CMD
-        
-        EXIT_CODE=$?
-        
-        echo ""
-        echo "=========================================="
-        if [[ $EXIT_CODE -eq 0 ]]; then
-          echo "🎉 股票分析任务完成"
-        else
-          echo "❌ 股票分析任务失败"
-          exit $EXIT_CODE
-        fi
-    
-    - name: 上传分析报告
-      if: always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: stock-reports-${{ github.run_id }}
-        path: |
-          reports_*
-          *.zip
-        retention-days: 30
-    
-    - name: 清理临时文件
-      if: always()
-      run: |
-        echo "🧹 清理临时文件..."
-        rm -rf reports_* *.zip 2>/dev/null || true
-    
-    - name: 发送失败通知到Telegram
-      if: failure()
-      uses: appleboy/telegram-action@master
-      with:
-        to: ${{ secrets.TELEGRAM_CHAT_ID }}
-        token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        message: |
-          ❌ 股票分析任务执行失败！
-          
-          工作流: ${{ github.workflow }}
-          运行ID: ${{ github.run_id }}
-          触发方式: ${{ github.event_name }}
-          
-          请检查日志: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: 检出代码
+        uses: actions/checkout@v3
+      - name: 设置Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: 安装依赖
+        run: |
+          pip install requests pandas numpy matplotlib reportlab akshare pytz
+      - name: 运行分析
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python github_stock_bot.py --telegram

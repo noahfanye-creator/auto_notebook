@@ -9,7 +9,7 @@ on:
         default: '600460 300474 300623 300420'
         type: string
   schedule:
-    # 北京时间周一至周五 15:10 自动运行一次（收盘后）
+    # 北京时间周一至周五 15:10 自动运行一次
     - cron: '10 7 * * 1-5'
 
 jobs:
@@ -39,17 +39,18 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
         export TZ='Asia/Shanghai'
-        # 运行你上传的增强版脚本
-        python enhanced_stock_analysis_system.py --mode telegram --stocks '${{ github.event.inputs.stocks }}'
+        # 修正文件名：确保运行的是 github_stock_bot.py
+        # 并传入你的 4 支目标股
+        python github_stock_bot.py --mode telegram --stocks '${{ github.event.inputs.stocks }}'
     
-    - name: 上传报告到 GitHub (备用下载)
+    - name: 上传报告到 GitHub (备用)
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: stock-reports-${{ github.run_id }}
         path: |
-          **/reports_*/*.pdf
-          **/reports_*/*.zip
+          reports/**/*.pdf
+          reports/**/*.zip
 
     - name: 发送报告到 Telegram 🚀
       if: success()
@@ -58,4 +59,4 @@ jobs:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         document: reports/**/*.zip
-        caption: "✅ Felix，报告已生成！\n📈 包含：士兰微、景嘉微、捷捷微电、五洋自控\n📊 指标：MACD, RSI, KDJ, 威廉, OBV"
+        caption: "✅ Felix，机器人已完成 4 支股票深度分析！\n📈 目标：士兰微、景嘉微、捷捷微电、五洋自控\n📊 指标：MACD, RSI, KDJ, 威廉, OBV"

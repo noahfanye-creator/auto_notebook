@@ -1353,18 +1353,19 @@ def main():
     print("\n👋 程序结束")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        import argparse
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--mode', choices=['manual', 'telegram'], default='manual')
-        parser.add_argument('--stocks', type=str, default=' '.join(TARGET_STOCKS))
-        args = parser.parse_args()
-        
-        if args.mode == 'telegram':
-            run_analysis_with_telegram()
-        else:
-            if args.stocks != ' '.join(TARGET_STOCKS):
-                TARGET_STOCKS = args.stocks.split()
-            main()
-    else:
-        main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    # 增加 --force 参数支持
+    parser.add_argument('--force', action='store_true', help='强制运行，忽略时间检查')
+    parser.add_argument('--mode', choices=['manual', 'telegram'], default='manual')
+    parser.add_argument('--stocks', type=str, default=' '.join(TARGET_STOCKS))
+    args = parser.parse_args()
+    
+    # 逻辑修正：只要指定了 stocks，就更新目标
+    if args.stocks:
+        TARGET_STOCKS = args.stocks.split()
+    
+    # 这里的逻辑强制让它运行 main()，因为你的 run_analysis_with_telegram 还没写完
+    # 这样无论何时点 Run Workflow，都会立刻生成 PDF
+    print("🚀 正在启动分析引擎 (已跳过时间检查)...")
+    main()

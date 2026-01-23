@@ -44,14 +44,14 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
         export TZ='Asia/Shanghai'
-        # 使用你代码认领的 --mode telegram 参数
-        python github_stock_bot.py --mode telegram --stocks '${{ github.event.inputs.stocks }}'
-    
+        # 强制运行并指定在 reports 文件夹下生成
+        python github_stock_bot.py --mode telegram --stocks '600460 300474 300623 300420'
+
     - name: 上传分析报告
       if: always()
-      uses: actions/upload-artifact@v4  # 核心修正：这里从 v3 改成了 v4
+      uses: actions/upload-artifact@v4
       with:
-        name: stock-reports-${{ github.run_id }} # v4 要求名字必须唯一，所以加了 ID
+        name: stock-reports-${{ github.run_id }}
         path: |
-          reports_*
-          *.zip
+          reports/reports_*/*.pdf
+          reports/reports_*/*.zip

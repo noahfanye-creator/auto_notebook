@@ -13,6 +13,8 @@ import sys
 import traceback
 import zipfile
 import shutil
+import time
+import json
 from datetime import datetime, timedelta
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -24,14 +26,6 @@ from reportlab.pdfgen import canvas
 
 # === 目标股票列表 ===
 TARGET_STOCKS = ["600460", "300474", "300623", "300420"]
-
-# === 重要提示:使用前请安装 akshare 库以支持港股数据 ===
-try:
-    import akshare as ak
-    HK_SUPPORT = True
-except ImportError:
-    HK_SUPPORT = False
-    print("⚠️  未找到 `akshare` 库。将无法获取港股数据。")
 
 # ==================== 1. 字体配置 ====================
 def setup_fonts():
@@ -73,98 +67,207 @@ FONT_NAME = setup_fonts()
 # ==================== 2. 数据抓取模块 ====================
 
 def normalize_code(code):
-    """标准化股票代码"""
-    code = code.strip().lower().replace(' ', '')
+    """标准化代码：区分A股市场"""
+    code = code.strip()
     
-    if '.hk' in code or code.endswith('hk'):
-        code = code.replace('.', '').replace('hk', '') + 'hk'
-        return code
-    
-    if re.match(r'^\d{5,6}$', code):
-        if code.startswith('6'): 
+    # 如果是 6 位数字，判定为 A 股
+    if re.match(r'^\d{6}$', code):
+        if code.startswith('6'):  # 沪市（包括科创板）
             return f"sh{code}"
-        if code.startswith('0') or code.startswith('3'): 
+        if code.startswith('0') or code.startswith('3'):  # 深市/创业板
             return f"sz{code}"
-        if code.startswith('4') or code.startswith('8'): 
-            return f"bj{code}"
+    
+    # 如果已经是带前缀的代码，直接返回
+    if code.startswith('sh') or code.startswith('sz'):
+        return code
     
     return code
 
 def get_name(symbol):
-    """获取股票名称"""
-    if symbol.endswith('hk'):
-        try:
-            if HK_SUPPORT:
-                pure_code = symbol.replace('hk', '')
-                df = ak.stock_hk_spot_em()
-                if df is not None and not df.empty:
-                    match = df[df['代码'] == pure_code]
-                    if not match.empty:
-                        return match.iloc[0]['名称']
-        except Exception as e:
-            print(f"获取港股名称出错: {e}")
-        return symbol
-    
+    """获取股票名称 - 使用新浪财经接口"""
     try:
-        url = f"http://hq.sinajs.cn/list={symbol}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-            'Referer': 'https://finance.sina.com.cn'
-        }
-        resp = requests.get(url, headers=headers, timeout=10)
-        if "=\"" in resp.text:
-            name = resp.text.split('="')[1].split(',')[0]
-            if name and name != symbol:
-                return name
-    except Exception as e:
-        print(f"获取A股名称出错: {e}")
+        # 如果是标准化的代码，直接使用
+        if symbol.startswith('sh') or symbol.startswith('sz'):
+            # 新浪财经实时数据接口
+            url = f"http://hq.sinajs.cn/list={symbol}"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Referer': 'https://finance.sina.com.cn',
+                'Accept': '*/*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            response.encoding = 'gb2312'
+            
+            if response.status_code == 200:
+                content = response.text
+                # 解析新浪财经返回的数据格式
+                # 格式：var hq_str_sh600460="士兰微,29.80,29.89,30.50,30.98,29.75,..."
+                if '="' in content:
+                    data_str = content.split('="')[1].split('"')[0]
+                    if data_str:
+                        parts = data_str.split(',')
+                        if len(parts) > 0:
+                            return parts[0]  # 股票名称
+        
+        # 如果上面失败，尝试使用东方财富接口
+        clean_code = re.sub(r'[a-zA-Z]', '', symbol)
+        if clean_code:
+            # 东方财富股票信息接口
+            url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={'1.' if clean_code.startswith('6') else '0.'}{clean_code}&fields=f12,f13,f14"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://quote.eastmoney.com/'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('data'):
+                    return data['data'].get('f14', symbol)
     
+    except Exception as e:
+        print(f"获取股票名称出错 {symbol}: {e}")
+    
+    # 返回原始代码
     return symbol
 
-def fetch_kline_data(symbol, scale, datalen=100):
-    """获取K线数据"""
+def fetch_kline_data_from_sina(symbol, scale=240, datalen=100):
+    """从新浪财经获取K线数据
+    
+    Args:
+        symbol: 股票代码，如 sh600460
+        scale: K线周期，240=日线，30=30分钟，5=5分钟，1=1分钟
+        datalen: 数据长度
+    """
     try:
-        url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={symbol}&scale={scale}&ma=no&datalen={datalen}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
-        resp = requests.get(url, headers=headers, timeout=20)
-        
-        if resp.status_code != 200:
-            return None
-            
-        data = resp.json()
-        if not data:
+        # 提取纯数字代码
+        clean_code = re.sub(r'[a-zA-Z]', '', symbol)
+        if not clean_code:
+            print(f"❌ 无效的股票代码: {symbol}")
             return None
         
-        df = pd.DataFrame(data)
+        # 新浪财经历史数据接口
+        # 日线数据
+        if scale == 240:
+            url = f"https://quotes.sina.cn/cn/api/openapi.php/CN_MarketDataService.getKLineData"
+            params = {
+                'symbol': symbol.upper(),
+                'scale': scale,
+                'datalen': datalen,
+                'ma': 'no'
+            }
+        else:
+            # 分钟数据
+            url = f"https://quotes.sina.cn/cn/api/openapi.php/StockV2Service.getMinLine"
+            params = {
+                'symbol': symbol.upper(),
+                'scale': scale,
+                'datalen': datalen
+            }
         
-        df.rename(columns={
-            'day': 'Date', 
-            'open': 'Open', 
-            'high': 'High', 
-            'low': 'Low', 
-            'close': 'Close', 
-            'volume': 'Volume'
-        }, inplace=True)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://finance.sina.com.cn',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+        }
         
-        cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-        for col in cols:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+        print(f"  📡 从新浪财经获取数据: {symbol} scale={scale}")
         
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+        
+        if response.status_code != 200:
+            print(f"  ❌ HTTP错误: {response.status_code}")
+            return None
+        
+        try:
+            data = response.json()
+        except:
+            # 尝试处理可能的非标准JSON响应
+            text = response.text
+            if 'day' in text or 'd=' in text:
+                # 尝试解析
+                try:
+                    # 尝试提取JSON部分
+                    start = text.find('{')
+                    end = text.rfind('}') + 1
+                    if start >= 0 and end > start:
+                        json_str = text[start:end]
+                        data = json.loads(json_str)
+                    else:
+                        print(f"  ❌ 无法解析JSON响应")
+                        return None
+                except:
+                    print(f"  ❌ JSON解析失败")
+                    return None
+            else:
+                print(f"  ❌ 响应不是有效的JSON")
+                return None
+        
+        # 解析新浪财经返回的数据结构
+        klines = []
+        
+        if scale == 240:
+            # 日线数据格式
+            if 'result' in data and 'data' in data['result']:
+                for item in data['result']['data']:
+                    try:
+                        klines.append({
+                            'Date': item['day'],
+                            'Open': float(item['open']),
+                            'High': float(item['high']),
+                            'Low': float(item['low']),
+                            'Close': float(item['close']),
+                            'Volume': float(item.get('volume', 0))
+                        })
+                    except:
+                        continue
+        else:
+            # 分钟数据格式
+            if 'result' in data and 'data' in data['result']:
+                for item in data['result']['data']:
+                    try:
+                        klines.append({
+                            'Date': f"{item['d']} {item['t']}:00",
+                            'Open': float(item['o']),
+                            'High': float(item['h']),
+                            'Low': float(item['l']),
+                            'Close': float(item['c']),
+                            'Volume': float(item.get('v', 0))
+                        })
+                    except:
+                        continue
+        
+        if not klines:
+            print(f"  ⚠️  未获取到有效数据")
+            return None
+        
+        # 创建DataFrame
+        df = pd.DataFrame(klines)
         df['Date'] = pd.to_datetime(df['Date'])
         df.set_index('Date', inplace=True)
         df.sort_index(inplace=True)
         
+        print(f"    ✓ 获取到 {len(df)} 条数据")
         return df
         
     except Exception as e:
-        print(f"获取数据失败 {symbol} scale={scale}: {e}")
+        print(f"  ❌ 从新浪财经获取数据失败 {symbol}: {e}")
+        traceback.print_exc()
         return None
+
+def fetch_kline_data(symbol, scale=240, datalen=100):
+    """主数据获取函数 - 使用新浪财经"""
+    return fetch_kline_data_from_sina(symbol, scale, datalen)
 
 def fetch_alternative_1min_data(symbol, days=5):
     """替代方法获取1分钟数据"""
     try:
         print(f"  尝试使用替代方法获取1分钟数据...")
         
+        # 先获取日线数据
         df_day = fetch_kline_data(symbol, 240, days*2)
         if df_day is None or df_day.empty:
             return None
@@ -177,24 +280,21 @@ def fetch_alternative_1min_data(symbol, days=5):
             high_price = row['High']
             low_price = row['Low']
             close_price = row['Close']
-            volume = row['Volume']
+            volume = row['Volume'] if 'Volume' in row else 100000
             
             price_range = high_price - low_price
-            minute_vol = volume / 240
+            minute_vol = volume / 240  # 假设均匀分布
             
             prices = np.linspace(base_price, close_price, 240)
             noise = np.random.normal(0, price_range * 0.1, 240)
             prices = prices + noise
             prices = np.clip(prices, low_price, high_price)
             
-            for minute in range(0, 240, 1):
-                if minute + 1 >= len(prices):
-                    continue
-                    
+            for minute in range(0, 239, 1):  # 减少1，防止越界
                 minute_open = prices[minute]
-                minute_high = max(prices[minute], prices[minute+1] if minute+1 < len(prices) else prices[minute])
-                minute_low = min(prices[minute], prices[minute+1] if minute+1 < len(prices) else prices[minute])
-                minute_close = prices[minute+1] if minute+1 < len(prices) else prices[minute]
+                minute_high = max(prices[minute], prices[minute+1])
+                minute_low = min(prices[minute], prices[minute+1])
+                minute_close = prices[minute+1]
                 
                 minute_time = date + timedelta(hours=9, minutes=30 + minute)
                 
@@ -219,42 +319,12 @@ def fetch_alternative_1min_data(symbol, days=5):
         print(f"  替代方法获取1分钟数据失败: {e}")
         return None
 
-def fetch_hk_index_data(index_code, scale=240, datalen=100):
-    """获取港股指数数据"""
-    if not HK_SUPPORT:
-        return None
-    
-    try:
-        if index_code == 'HSI':
-            df = ak.stock_hk_index_daily_sina(symbol="恒生指数")
-            df.rename(columns={'date': 'Date', 'open': 'Open', 'high': 'High', 
-                              'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
-        elif index_code == 'HSCEI':
-            df = ak.stock_hk_index_daily_sina(symbol="国企指数")
-            df.rename(columns={'date': 'Date', 'open': 'Open', 'high': 'High', 
-                              'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
-        elif index_code == 'HSTECH':
-            df = ak.stock_hk_index_daily_sina(symbol="恒生科技")
-            df.rename(columns={'date': 'Date', 'open': 'Open', 'high': 'High', 
-                              'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
-        else:
-            return None
-        
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.set_index('Date', inplace=True)
-        df.sort_index(inplace=True)
-        df = df.tail(datalen)
-        
-        return df
-        
-    except Exception as e:
-        print(f"获取港股指数数据失败 {index_code}: {e}")
-        return None
-
 def calculate_technical_indicators(df):
     """计算技术指标（增强版）"""
     if df is None or df.empty:
         return df
+    
+    df = df.copy()
     
     # 移动平均线
     window_5 = min(5, len(df))
@@ -262,79 +332,84 @@ def calculate_technical_indicators(df):
     window_20 = min(20, len(df))
     window_60 = min(60, len(df))
     
-    df['MA5'] = df['Close'].rolling(window=window_5, min_periods=1).mean()
-    df['MA10'] = df['Close'].rolling(window=window_10, min_periods=1).mean()
-    df['MA20'] = df['Close'].rolling(window=window_20, min_periods=1).mean()
-    df['MA60'] = df['Close'].rolling(window=window_60, min_periods=1).mean()
-    df['MA250'] = df['Close'].rolling(window=min(250, len(df)), min_periods=1).mean()
+    if 'Close' in df.columns:
+        df['MA5'] = df['Close'].rolling(window=window_5, min_periods=1).mean()
+        df['MA10'] = df['Close'].rolling(window=window_10, min_periods=1).mean()
+        df['MA20'] = df['Close'].rolling(window=window_20, min_periods=1).mean()
+        df['MA60'] = df['Close'].rolling(window=window_60, min_periods=1).mean()
+        df['MA250'] = df['Close'].rolling(window=min(250, len(df)), min_periods=1).mean()
     
     # MACD
-    exp12 = df['Close'].ewm(span=12, adjust=False).mean()
-    exp26 = df['Close'].ewm(span=26, adjust=False).mean()
-    df['DIF'] = exp12 - exp26
-    df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
-    df['MACD'] = 2 * (df['DIF'] - df['DEA'])
+    if 'Close' in df.columns and len(df) >= 26:
+        exp12 = df['Close'].ewm(span=12, adjust=False).mean()
+        exp26 = df['Close'].ewm(span=26, adjust=False).mean()
+        df['DIF'] = exp12 - exp26
+        df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
+        df['MACD'] = 2 * (df['DIF'] - df['DEA'])
     
     # RSI
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=min(14, len(df))).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=min(14, len(df))).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'] = df['RSI'].fillna(50)
+    if 'Close' in df.columns and len(df) >= 14:
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=min(14, len(df))).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=min(14, len(df))).mean()
+        rs = gain / loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+        df['RSI'] = df['RSI'].fillna(50)
     
     # 布林带
-    df['BB_Middle'] = df['Close'].rolling(window=min(20, len(df))).mean()
-    df['BB_Std'] = df['Close'].rolling(window=min(20, len(df))).std()
-    df['BB_Upper'] = df['BB_Middle'] + (df['BB_Std'] * 2)
-    df['BB_Lower'] = df['BB_Middle'] - (df['BB_Std'] * 2)
+    if 'Close' in df.columns and len(df) >= 20:
+        df['BB_Middle'] = df['Close'].rolling(window=min(20, len(df))).mean()
+        df['BB_Std'] = df['Close'].rolling(window=min(20, len(df))).std()
+        df['BB_Upper'] = df['BB_Middle'] + (df['BB_Std'] * 2)
+        df['BB_Lower'] = df['BB_Middle'] - (df['BB_Std'] * 2)
     
     # 成交量均线
-    df['Volume_MA5'] = df['Volume'].rolling(window=min(5, len(df)), min_periods=1).mean()
-    df['Volume_MA10'] = df['Volume'].rolling(window=min(10, len(df)), min_periods=1).mean()
-    
-    # 量比
-    df['Volume_Ratio'] = df['Volume'] / df['Volume_MA5']
-    df['Volume_Ratio'] = df['Volume_Ratio'].replace([np.inf, -np.inf], 1).fillna(1)
+    if 'Volume' in df.columns:
+        df['Volume_MA5'] = df['Volume'].rolling(window=min(5, len(df)), min_periods=1).mean()
+        df['Volume_MA10'] = df['Volume'].rolling(window=min(10, len(df)), min_periods=1).mean()
+        
+        # 量比
+        df['Volume_Ratio'] = df['Volume'] / df['Volume_MA5']
+        df['Volume_Ratio'] = df['Volume_Ratio'].replace([np.inf, -np.inf], 1).fillna(1)
     
     # KDJ指标
-    window_9 = min(9, len(df))
-    low_list = df['Low'].rolling(window=window_9, min_periods=1).min()
-    high_list = df['High'].rolling(window=window_9, min_periods=1).max()
-    rsv = ((df['Close'] - low_list) / (high_list - low_list) * 100).fillna(50)
-    df['K'] = rsv.ewm(com=2, adjust=False).mean()
-    df['D'] = df['K'].ewm(com=2, adjust=False).mean()
-    df['J'] = 3 * df['K'] - 2 * df['D']
+    if 'High' in df.columns and 'Low' in df.columns and 'Close' in df.columns and len(df) >= 9:
+        window_9 = min(9, len(df))
+        low_list = df['Low'].rolling(window=window_9, min_periods=1).min()
+        high_list = df['High'].rolling(window=window_9, min_periods=1).max()
+        rsv = ((df['Close'] - low_list) / (high_list - low_list) * 100).fillna(50)
+        df['K'] = rsv.ewm(com=2, adjust=False).mean()
+        df['D'] = df['K'].ewm(com=2, adjust=False).mean()
+        df['J'] = 3 * df['K'] - 2 * df['D']
     
     # 威廉指标
-    high_14 = df['High'].rolling(window=min(14, len(df)), min_periods=1).max()
-    low_14 = df['Low'].rolling(window=min(14, len(df)), min_periods=1).min()
-    df['WR'] = ((high_14 - df['Close']) / (high_14 - low_14) * 100).fillna(50)
+    if 'High' in df.columns and 'Low' in df.columns and 'Close' in df.columns and len(df) >= 14:
+        high_14 = df['High'].rolling(window=min(14, len(df)), min_periods=1).max()
+        low_14 = df['Low'].rolling(window=min(14, len(df)), min_periods=1).min()
+        df['WR'] = ((high_14 - df['Close']) / (high_14 - low_14) * 100).fillna(50)
     
     # OBV
-    df['OBV'] = 0.0
-    obv_values = []
-    obv = 0
-    prev_close = None
-    
-    for idx, row in df.iterrows():
-        if prev_close is not None:
-            if row['Close'] > prev_close:
-                obv += row['Volume']
-            elif row['Close'] < prev_close:
-                obv -= row['Volume']
-        obv_values.append(obv)
-        prev_close = row['Close']
-    
-    df['OBV'] = obv_values
+    if 'Close' in df.columns and 'Volume' in df.columns:
+        df['OBV'] = 0.0
+        obv_values = []
+        obv = 0
+        prev_close = None
+        
+        for idx, row in df.iterrows():
+            if prev_close is not None:
+                if row['Close'] > prev_close:
+                    obv += row['Volume']
+                elif row['Close'] < prev_close:
+                    obv -= row['Volume']
+            obv_values.append(obv)
+            prev_close = row['Close']
+        
+        df['OBV'] = obv_values
     
     # 振幅
-    df['Amplitude'] = ((df['High'] - df['Low']) / df['Close'].shift(1).replace(0, 1)) * 100
-    df['Amplitude'] = df['Amplitude'].fillna(0)
-    
-    # 换手率
-    df['Turnover_Proxy'] = (df['Volume'] / df['Volume'].rolling(window=min(20, len(df))).mean()) * 100
-    df['Turnover_Proxy'] = df['Turnover_Proxy'].fillna(100)
+    if 'High' in df.columns and 'Low' in df.columns and 'Close' in df.columns:
+        df['Amplitude'] = ((df['High'] - df['Low']) / df['Close'].shift(1).replace(0, 1)) * 100
+        df['Amplitude'] = df['Amplitude'].fillna(0)
     
     return df
 
@@ -372,110 +447,93 @@ def resample_kline_data(df, period='W'):
         print(f"重采样失败: {e}")
         return None
 
-def get_market_indices_data(market_type='A'):
-    """获取市场指数数据"""
+def get_market_indices_data():
+    """获取A股市场指数数据 - 使用新浪财经"""
     indices_data = {}
     
-    if market_type == 'A':
-        a_indices = {
-            'sh000001': '上证指数',
-            'sz399001': '深证成指',
-            'sz399006': '创业板指',
-            'sh000688': '科创50',
-            'sh000300': '沪深300',
-            'sh000905': '中证500',
-            'sh000016': '上证50',
-            'sz399005': '中小板指'
-        }
+    # A股主要指数
+    a_indices = {
+        'sh000001': '上证指数',
+        'sz399001': '深证成指',
+        'sz399006': '创业板指',
+        'sh000688': '科创50',
+        'sh000300': '沪深300',
+        'sh000905': '中证500',
+        'sh000016': '上证50',
+        'sz399005': '中小板指'
+    }
+    
+    print("📊 获取A股指数数据...")
+    for code, name in a_indices.items():
+        print(f"  获取 {name}...")
         
-        print("📊 获取A股指数数据...")
-        for code, name in a_indices.items():
-            print(f"  获取 {name}...")
+        try:
+            # 使用新浪财经接口获取指数数据
             df = fetch_kline_data(code, 240, 150)
-            if df is not None:
+            
+            if df is not None and not df.empty:
                 df = calculate_technical_indicators(df)
                 indices_data[code] = {
                     'name': name,
                     'data': df,
                     'type': 'A'
                 }
-                
-    elif market_type == 'H' and HK_SUPPORT:
-        hk_indices = {
-            'HSI': '恒生指数',
-            'HSCEI': '恒生国企指数',
-            'HSTECH': '恒生科技指数'
-        }
-        
-        print("📊 获取港股指数数据...")
-        for code, name in hk_indices.items():
-            print(f"  获取 {name}...")
-            df = fetch_hk_index_data(code, 240, 150)
-            if df is not None:
-                df = calculate_technical_indicators(df)
-                indices_data[code] = {
-                    'name': name,
-                    'data': df,
-                    'type': 'H'
-                }
+                print(f"    ✓ 获取成功: {len(df)} 条数据")
+            else:
+                print(f"    ❌ 获取失败")
+        except Exception as e:
+            print(f"    ❌ 获取失败: {e}")
     
     return indices_data
 
 def get_market_summary_analysis(indices_data):
     """生成市场综合分析"""
     if not indices_data:
-        return ""
+        return "【市场指数数据获取失败】\n\n"
     
-    analysis = ""
+    analysis = "【A股市场综合分析】\n\n"
     
-    a_indices = {k: v for k, v in indices_data.items() if v.get('type') == 'A'}
-    if a_indices:
-        analysis += "【A股市场综合分析】\n\n"
+    for code, info in indices_data.items():
+        df = info['data']
+        name = info['name']
         
-        for code, info in a_indices.items():
-            df = info['data']
-            name = info['name']
+        if df is not None and not df.empty and len(df) >= 20:
+            last = df.iloc[-1]
             
-            if df is not None and not df.empty:
-                last = df.iloc[-1]
-                
-                trend = "横盘"
+            trend = "横盘"
+            if 'MA5' in last and 'MA10' in last and 'MA20' in last:
                 if last['MA5'] > last['MA10'] > last['MA20']:
                     trend = "多头排列"
                 elif last['MA5'] < last['MA10'] < last['MA20']:
                     trend = "空头排列"
-                
-                rsi_status = "中性"
+            
+            rsi_status = "中性"
+            if 'RSI' in last:
                 if last['RSI'] > 70:
                     rsi_status = "超买"
                 elif last['RSI'] < 30:
                     rsi_status = "超卖"
-                
-                analysis += f"{name}:\n"
-                analysis += f"  现价: {last['Close']:.2f}, MA5: {last['MA5']:.2f}, MA10: {last['MA10']:.2f}\n"
-                analysis += f"  趋势: {trend}, RSI: {last['RSI']:.1f}({rsi_status})\n"
-                analysis += f"  MACD: {last['MACD']:.3f}, KDJ: K={last['K']:.1f} D={last['D']:.1f} J={last['J']:.1f}\n\n"
-    
-    hk_indices = {k: v for k, v in indices_data.items() if v.get('type') == 'H'}
-    if hk_indices:
-        analysis += "【港股市场综合分析】\n\n"
-        
-        for code, info in hk_indices.items():
-            df = info['data']
-            name = info['name']
             
-            if df is not None and not df.empty:
-                last = df.iloc[-1]
-                
-                trend = "横盘"
-                if last['MA5'] > last['MA10'] > last['MA20']:
-                    trend = "多头排列"
-                elif last['MA5'] < last['MA10'] < last['MA20']:
-                    trend = "空头排列"
-                
-                analysis += f"{name}:\n"
-                analysis += f"  现价: {last['Close']:.2f}, 趋势: {trend}\n"
-                analysis += f"  关键位置: 支撑位{last['BB_Lower']:.0f}, 阻力位{last['BB_Upper']:.0f}\n\n"
+            analysis += f"{name}:\n"
+            analysis += f"  现价: {last['Close']:.2f}"
+            
+            if 'MA5' in last:
+                analysis += f", MA5: {last['MA5']:.2f}"
+            if 'MA10' in last:
+                analysis += f", MA10: {last['MA10']:.2f}"
+            
+            analysis += f"\n  趋势: {trend}"
+            
+            if 'RSI' in last:
+                analysis += f", RSI: {last['RSI']:.1f}({rsi_status})"
+            
+            if 'MACD' in last:
+                analysis += f"\n  MACD: {last['MACD']:.3f}"
+            
+            if 'K' in last and 'D' in last and 'J' in last:
+                analysis += f", KDJ: K={last['K']:.1f} D={last['D']:.1f} J={last['J']:.1f}"
+            
+            analysis += "\n\n"
     
     return analysis
 
@@ -502,10 +560,11 @@ def get_market_sentiment_analysis(indices_data):
             else:
                 down_count += 1
             
-            if last['RSI'] > 70:
-                overbought_count += 1
-            elif last['RSI'] < 30:
-                oversold_count += 1
+            if 'RSI' in last:
+                if last['RSI'] > 70:
+                    overbought_count += 1
+                elif last['RSI'] < 30:
+                    oversold_count += 1
     
     total = up_count + down_count
     if total > 0:
@@ -522,7 +581,7 @@ def get_market_sentiment_analysis(indices_data):
     volatility_data = []
     for code, info in indices_data.items():
         df = info['data']
-        if df is not None and len(df) >= 5:
+        if df is not None and len(df) >= 5 and 'Amplitude' in df.columns:
             last_5 = df.tail(5)
             volatility = last_5['Amplitude'].mean()
             volatility_data.append((info['name'], volatility))
@@ -563,7 +622,7 @@ def create_candle_chart(df, title, filename):
         highs = plot_data['High'].values
         lows = plot_data['Low'].values
         closes = plot_data['Close'].values
-        volumes = plot_data['Volume'].values
+        volumes = plot_data['Volume'].values if 'Volume' in plot_data.columns else np.zeros(len(dates))
         
         volume_ratios = plot_data['Volume_Ratio'].values if 'Volume_Ratio' in plot_data.columns else None
         
@@ -879,28 +938,49 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
                         ['MA20', f"{last['MA20']:.2f}" if 'MA20' in last else 'N/A', '']
                     ]
                     
-                    tech_data = [
-                        ['技术指标', '数值', '状态描述'],
-                        ['RSI(14)', f"{last['RSI']:.1f}" if 'RSI' in last else 'N/A', 
-                         '超买区' if 'RSI' in last and last['RSI'] > 70 else ('超卖区' if 'RSI' in last and last['RSI'] < 30 else '正常区间')],
-                        ['MACD', f"{last['MACD']:.3f}" if 'MACD' in last else 'N/A', 
-                         '多头' if 'MACD' in last and last['MACD'] > 0 else '空头'],
-                        ['KDJ-K', f"{last['K']:.1f}" if 'K' in last else 'N/A', 
-                         '超买' if 'K' in last and last['K'] > 80 else ('超卖' if 'K' in last and last['K'] < 20 else '正常')],
-                        ['KDJ-D', f"{last['D']:.1f}" if 'D' in last else 'N/A', ''],
-                        ['KDJ-J', f"{last['J']:.1f}" if 'J' in last else 'N/A', ''],
-                        ['威廉指标', f"{last['WR']:.1f}" if 'WR' in last else 'N/A', 
-                         '超买区' if 'WR' in last and last['WR'] < 20 else ('超卖区' if 'WR' in last and last['WR'] > 80 else '正常区间')],
-                        ['OBV', f"{last['OBV']:.0f}" if 'OBV' in last else 'N/A', '能量潮指标']
-                    ]
+                    tech_data = []
+                    if 'RSI' in last:
+                        rsi_status = '超买区' if last['RSI'] > 70 else ('超卖区' if last['RSI'] < 30 else '正常区间')
+                        tech_data.append(['RSI(14)', f"{last['RSI']:.1f}", rsi_status])
+                    
+                    if 'MACD' in last:
+                        macd_status = '多头' if last['MACD'] > 0 else '空头'
+                        tech_data.append(['MACD', f"{last['MACD']:.3f}", macd_status])
+                    
+                    if 'K' in last:
+                        k_status = '超买' if last['K'] > 80 else ('超卖' if last['K'] < 20 else '正常')
+                        tech_data.append(['KDJ-K', f"{last['K']:.1f}", k_status])
+                    
+                    if 'D' in last:
+                        tech_data.append(['KDJ-D', f"{last['D']:.1f}", ''])
+                    
+                    if 'J' in last:
+                        tech_data.append(['KDJ-J', f"{last['J']:.1f}", ''])
+                    
+                    if 'WR' in last:
+                        wr_status = '超买区' if last['WR'] < 20 else ('超卖区' if last['WR'] > 80 else '正常区间')
+                        tech_data.append(['威廉指标', f"{last['WR']:.1f}", wr_status])
+                    
+                    if 'OBV' in last:
+                        tech_data.append(['OBV', f"{last['OBV']:.0f}", '能量潮指标'])
+                    
+                    # 如果tech_data不为空，添加表头
+                    if tech_data:
+                        tech_data.insert(0, ['技术指标', '数值', '状态描述'])
                     
                     volume_data = [
-                        ['成交量指标', '数值', '说明'],
-                        ['成交量', f"{last['Volume']:.0f}" if 'Volume' in last else 'N/A', ''],
-                        ['量比', f"{last['Volume_Ratio']:.2f}" if 'Volume_Ratio' in last else 'N/A', 
-                         '放量' if 'Volume_Ratio' in last and last['Volume_Ratio'] > 1.5 else ('缩量' if 'Volume_Ratio' in last and last['Volume_Ratio'] < 0.8 else '正常')],
-                        ['振幅', f"{last['Amplitude']:.2f}%" if 'Amplitude' in last else 'N/A', '波动性指标']
+                        ['成交量指标', '数值', '说明']
                     ]
+                    
+                    if 'Volume' in last:
+                        volume_data.append(['成交量', f"{last['Volume']:.0f}", ''])
+                    
+                    if 'Volume_Ratio' in last:
+                        vr_status = '放量' if last['Volume_Ratio'] > 1.5 else ('缩量' if last['Volume_Ratio'] < 0.8 else '正常')
+                        volume_data.append(['量比', f"{last['Volume_Ratio']:.2f}", vr_status])
+                    
+                    if 'Amplitude' in last:
+                        volume_data.append(['振幅', f"{last['Amplitude']:.2f}%", '波动性指标'])
                     
                     table1 = Table(basic_data, colWidths=[80, 80, 80])
                     table1.setStyle(TableStyle([
@@ -913,27 +993,29 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
                     story.append(table1)
                     story.append(Spacer(1, 10))
                     
-                    table2 = Table(tech_data, colWidths=[80, 80, 100])
-                    table2.setStyle(TableStyle([
-                        ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
-                        ('FONTSIZE', (0,0), (-1,-1), 9),
-                        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                        ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
-                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                    ]))
-                    story.append(table2)
-                    story.append(Spacer(1, 10))
+                    if tech_data:
+                        table2 = Table(tech_data, colWidths=[80, 80, 100])
+                        table2.setStyle(TableStyle([
+                            ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
+                            ('FONTSIZE', (0,0), (-1,-1), 9),
+                            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                            ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
+                            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                        ]))
+                        story.append(table2)
+                        story.append(Spacer(1, 10))
                     
-                    table3 = Table(volume_data, colWidths=[80, 80, 100])
-                    table3.setStyle(TableStyle([
-                        ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
-                        ('FONTSIZE', (0,0), (-1,-1), 9),
-                        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                        ('BACKGROUND', (0,0), (-1,0), colors.lightgreen),
-                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                    ]))
-                    story.append(table3)
-                    story.append(Spacer(1, 10))
+                    if len(volume_data) > 1:
+                        table3 = Table(volume_data, colWidths=[80, 80, 100])
+                        table3.setStyle(TableStyle([
+                            ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
+                            ('FONTSIZE', (0,0), (-1,-1), 9),
+                            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                            ('BACKGROUND', (0,0), (-1,0), colors.lightgreen),
+                            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                        ]))
+                        story.append(table3)
+                        story.append(Spacer(1, 10))
                     
                 except Exception as e:
                     story.append(Paragraph("数据计算中...", normal_style))
@@ -1018,29 +1100,13 @@ def process_multiple_stocks(stock_codes_input, output_folder):
         stock_name = get_name(stock_code)
         print(f"📛 股票名称: {stock_name}")
         
-        market_type = 'A'
-        if stock_code.endswith('hk'):
-            market_type = 'H'
-            if not HK_SUPPORT:
-                print("⚠️  港股数据需要akshare库，请安装: pip install akshare")
-                failed_reports.append((stock_code, stock_name, "缺少akshare库"))
-                continue
-        
         timestamp = datetime.now().strftime('%H%M%S')
         temp_dir = os.path.join(output_folder, f"temp_{stock_code}_{timestamp}")
         os.makedirs(temp_dir, exist_ok=True)
         print(f"📁 临时目录: {temp_dir}")
         
         print("\n1️⃣  获取市场指数数据...")
-        indices_data = {}
-        
-        a_indices = get_market_indices_data('A')
-        indices_data.update(a_indices)
-        
-        if market_type == 'H' and HK_SUPPORT:
-            hk_indices = get_market_indices_data('H')
-            indices_data.update(hk_indices)
-        
+        indices_data = get_market_indices_data()
         print(f"✅ 获取到 {len(indices_data)} 个市场指数数据")
         
         print("\n2️⃣  获取个股数据...")
@@ -1202,86 +1268,13 @@ def create_zip_archive(reports_folder, zip_filename=None):
         print(f"❌ 创建ZIP压缩包失败: {e}")
         return None
 
-# ==================== 7. 定时运行功能 ====================
-
-def is_market_open():
-    """判断A股市场是否开盘"""
-    from datetime import datetime
-    import pytz
-    
-    try:
-        china_tz = pytz.timezone('Asia/Shanghai')
-        now = datetime.now(china_tz)
-    except:
-        now = datetime.now()
-    
-    if now.weekday() >= 5:
-        return False
-    
-    current_time = now.time()
-    market_open_time = now.replace(hour=9, minute=0, second=0, microsecond=0).time()
-    market_close_time = now.replace(hour=15, minute=0, second=0, microsecond=0).time()
-    
-    return market_open_time <= current_time <= market_close_time
-
-def run_analysis_with_telegram():
-    """运行分析并发送到Telegram"""
-    import time
-    
-    print("=" * 70)
-    print("🚀 开始定时股票分析任务")
-    print("=" * 70)
-    
-    start_time = time.time()
-    
-    # 检查Telegram配置
-    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
-    TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
-    
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️  Telegram配置不完整，跳过Telegram通知")
-        HAS_TELEGRAM = False
-    else:
-        HAS_TELEGRAM = True
-        # 创建简单的Telegram通知器
-        class SimpleTelegramNotifier:
-            def __init__(self, bot_token, chat_id):
-                self.bot_token = bot_token
-                self.chat_id = chat_id
-                self.base_url = f"https://api.telegram.org/bot{bot_token}"
-            
-            def send_message(self, text):
-                try:
-                    url = f"{self.base_url}/sendMessage"
-                    payload = {
-                        'chat_id': self.chat_id,
-                        'text': text,
-                        'parse_mode': 'HTML'
-                    }
-                    response = requests.post(url, json=payload, timeout=10)
-                    return response.status_code == 200
-                except:
-                    return False
-            
-            def send_document(self, file_path, caption=""):
-                try:
-                    url = f"{self.base_url}/sendDocument"
-                    with open(file_path, 'rb') as file:
-                        files = {'document': file}
-                        data = {'chat_id': self.chat_id, 'caption': caption}
-                        response = requests.post(url, files=files, data=data, timeout=30)
-                        return response.status_code == 200
-                except:
-                    return False
-        
-        telegram_notifier = SimpleTelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-
 # ==================== 主程序 ====================
 
 def main():
     """主程序"""
     print("=" * 70)
     print("📊 股票分析报告生成器 (增强版)")
+    print("数据来源: 新浪财经")
     print("=" * 70)
     
     try:
@@ -1353,19 +1346,18 @@ def main():
     print("\n👋 程序结束")
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    # 增加 --force 参数支持
-    parser.add_argument('--force', action='store_true', help='强制运行，忽略时间检查')
-    parser.add_argument('--mode', choices=['manual', 'telegram'], default='manual')
-    parser.add_argument('--stocks', type=str, default=' '.join(TARGET_STOCKS))
-    args = parser.parse_args()
-    
-    # 逻辑修正：只要指定了 stocks，就更新目标
-    if args.stocks:
-        TARGET_STOCKS = args.stocks.split()
-    
-    # 这里的逻辑强制让它运行 main()，因为你的 run_analysis_with_telegram 还没写完
-    # 这样无论何时点 Run Workflow，都会立刻生成 PDF
-    print("🚀 正在启动分析引擎 (已跳过时间检查)...")
-    main()
+    if len(sys.argv) > 1:
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--mode', choices=['manual', 'telegram'], default='manual')
+        parser.add_argument('--stocks', type=str, default=' '.join(TARGET_STOCKS))
+        args = parser.parse_args()
+        
+        if args.mode == 'telegram':
+            print("⚠️ Telegram模式需要配置环境变量")
+        else:
+            if args.stocks != ' '.join(TARGET_STOCKS):
+                TARGET_STOCKS = args.stocks.split()
+            main()
+    else:
+        main()

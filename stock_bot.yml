@@ -47,7 +47,7 @@ jobs:
         cache: 'pip'
     
     - name: 安装依赖
-     run: |
+      run: |  # run 必须和 name 对齐
         python -m pip install --upgrade pip
         pip install requests pandas numpy reportlab akshare matplotlib
         

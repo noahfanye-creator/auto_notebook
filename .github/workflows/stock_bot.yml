@@ -8,12 +8,12 @@ on:
     - cron: '0 4 * * 1-5'
     # 3. 每天下午 (北京时间 15:00) -> UTC 07:00
     - cron: '0 7 * * 1-5'
-  workflow_dispatch: # 手动触发配置
+  workflow_dispatch:
     inputs:
       stocks:
         description: '输入股票代码（逗号分隔）'
         required: false
-        default: '600460,300474,300623,300019'
+        default: '688630,600460,300474,300623,300019'
 
 jobs:
   analyze-stocks:
@@ -36,26 +36,41 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y fonts-wqy-zenhei
     
-    - name: 运行股票分析并发送 Telegram
-      env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    - name: 运行股票分析
       run: |
         export TZ='Asia/Shanghai'
-        # 使用环境变量处理：优先使用手动输入的 stocks，如果没有则使用默认的 4 支股票
+        # 获取输入，如果为空则使用默认 5 支核心股
         STOCKS="${{ github.event.inputs.stocks }}"
         if [ -z "$STOCKS" ]; then
-          STOCKS="600460,300474,300623,300019"
+          STOCKS="688630,600460,300474,300623,300019"
         fi
         
-        # 运行脚本。注意：脚本内部已包含发送逻辑，无需额外插件
-        python github_stock_bot.py --mode telegram --stocks "$STOCKS"
+        # 模式设为 local，脚本只负责生成报告
+        python github_stock_bot.py --mode local --stocks "$STOCKS"
+
+    - name: 整理报告文件
+      run: |
+        # 创建一个固定目录，方便 Action 插件读取
+        mkdir -p final_delivery
+        # 寻找最近生成的 zip 压缩包并复制出来
+        find reports -name "*.zip" -exec cp {} final_delivery/stock_report.zip \;
+        echo "报告整理完成，准备发送..."
+
+    - name: 发送报告到 Telegram 🚀
+      if: success()
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ secrets.TELEGRAM_CHAT_ID }}
+        token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        document: final_delivery/stock_report.zip
+        caption: |
+          ✅ Felix，股票深度分析报告已生成！
+          📈 包含：芯碁微装、士兰微、景嘉微等
+          📊 指标：MACD, RSI, KDJ, 能量潮
     
-    - name: 上传报告到 GitHub (作为备份存档)
+    - name: 上传报告到 GitHub 备份
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: stock-reports-${{ github.run_id }}
-        path: |
-          reports/**/*.pdf
-          reports/**/*.zip
+        path: final_delivery/stock_report.zip

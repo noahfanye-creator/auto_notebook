@@ -51,8 +51,21 @@ jobs:
     - name: 整理报告文件
       run: |
         mkdir -p final_delivery
-        # 你的脚本会生成 reports/ 文件夹，我们把里面的 zip 找出来
-        find reports -name "*.zip" -exec cp {} final_delivery/stock_report.zip \;
+        # 选择本次运行生成的最新 ZIP
+        ZIP_PATH=$(python - <<'PY'
+import glob, os
+paths = glob.glob("reports/**/stock_reports_*.zip", recursive=True)
+paths = [p for p in paths if os.path.isfile(p)]
+paths.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+print(paths[0] if paths else "")
+PY
+        )
+        if [ -z "$ZIP_PATH" ]; then
+          echo "❌ 未找到报告 ZIP"
+          exit 1
+        fi
+        echo "✅ 使用报告ZIP: $ZIP_PATH"
+        cp "$ZIP_PATH" final_delivery/stock_report.zip
 
     - name: 上传报告到 GitHub Artifact
       if: success()

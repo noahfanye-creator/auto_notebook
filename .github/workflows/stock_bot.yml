@@ -2,24 +2,19 @@ name: 股票分析机器人 🤖
 
 on:
   schedule:
-    # 1. 每天早盘 (北京时间 09:15) -> UTC 01:15
     - cron: '15 1 * * 1-5'
-    # 2. 每天午盘 (北京时间 12:00) -> UTC 04:00
     - cron: '0 4 * * 1-5'
-    # 3. 每天下午 (北京时间 15:00) -> UTC 07:00
     - cron: '0 7 * * 1-5'
   workflow_dispatch:
     inputs:
       stocks:
-        description: '输入股票代码（逗号分隔）'
+        description: '输入股票代码'
         required: false
         default: '688630,600460,300474,300623,300019'
 
 jobs:
   analyze-stocks:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
@@ -37,24 +32,21 @@ jobs:
         sudo apt-get install -y fonts-wqy-zenhei
     
     - name: 运行股票分析
+      # 这里注意：我把 mode 改回了 manual，这是你脚本支持的
       run: |
         export TZ='Asia/Shanghai'
-        # 获取输入，如果为空则使用默认 5 支核心股
         STOCKS="${{ github.event.inputs.stocks }}"
         if [ -z "$STOCKS" ]; then
           STOCKS="688630,600460,300474,300623,300019"
         fi
-        
-        # 模式设为 local，脚本只负责生成报告
-        python github_stock_bot.py --mode local --stocks "$STOCKS"
-
+        # 使用 manual 模式，这样脚本只管生成 PDF，不会报错也不会重复发消息
+        python github_stock_bot.py --mode manual --stocks "$STOCKS"
+    
     - name: 整理报告文件
       run: |
-        # 创建一个固定目录，方便 Action 插件读取
         mkdir -p final_delivery
-        # 寻找最近生成的 zip 压缩包并复制出来
+        # 你的脚本会生成 reports/ 文件夹，我们把里面的 zip 找出来
         find reports -name "*.zip" -exec cp {} final_delivery/stock_report.zip \;
-        echo "报告整理完成，准备发送..."
 
     - name: 发送报告到 Telegram 🚀
       if: success()
@@ -63,14 +55,4 @@ jobs:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         document: final_delivery/stock_report.zip
-        caption: |
-          ✅ Felix，股票深度分析报告已生成！
-          📈 包含：芯碁微装、士兰微、景嘉微等
-          📊 指标：MACD, RSI, KDJ, 能量潮
-    
-    - name: 上传报告到 GitHub 备份
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: stock-reports-${{ github.run_id }}
-        path: final_delivery/stock_report.zip
+        caption: "✅ Felix，机器人分析完成！包含芯碁微装等 5 支核心股。"

@@ -2,13 +2,17 @@ name: 股票分析机器人 🤖
 
 on:
   schedule:
-    - cron: '15 1 * * 1-5'
-    - cron: '0 4 * * 1-5'
-    - cron: '0 7 * * 1-5'
+    # 交易日午盘与收盘（北京时间）
+    # A股：11:30 / 15:00；港股：12:00 / 16:00
+    # 触发时间加 5 分钟缓冲
+    - cron: '35 3 * * 1-5'  # 11:35
+    - cron: '5 4 * * 1-5'   # 12:05
+    - cron: '5 7 * * 1-5'   # 15:05
+    - cron: '10 8 * * 1-5'  # 16:10
   workflow_dispatch:
     inputs:
       stocks:
-        description: '输入股票代码'
+        description: '输入股票代码（支持A股和港股，如：600460,00700）'
         required: false
         default: '688630,600460,300474,300623,300019'
 
@@ -27,12 +31,11 @@ jobs:
     - name: 安装依赖
       run: |
         python -m pip install --upgrade pip
-        pip install requests pandas numpy reportlab akshare matplotlib pytz
+        pip install requests pandas numpy reportlab akshare matplotlib pytz yfinance
         sudo apt-get update
         sudo apt-get install -y fonts-wqy-zenhei
     
     - name: 运行股票分析
-      # 这里注意：我把 mode 改回了 manual，这是你脚本支持的
       run: |
         export TZ='Asia/Shanghai'
         STOCKS="${{ github.event.inputs.stocks }}"
@@ -62,4 +65,5 @@ jobs:
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        message: "✅ Felix，机器人已完成股票分析报告\n📥 下载链接（Actions Artifact）: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        document: final_delivery/stock_report.zip
+        caption: "✅ Felix，机器人已完成股票分析报告（ZIP）"

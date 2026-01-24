@@ -101,8 +101,12 @@ FONT_NAME = setup_fonts()
 # ==================== 2. 数据抓取模块 ====================
 
 def normalize_code(code):
-    """标准化代码：区分A股市场"""
+    """标准化代码：区分A股和港股市场"""
     code = code.strip()
+    
+    # 检查是否为港股
+    if is_hk_stock(code):
+        return normalize_hk_code(code)
     
     # 如果是 6 位数字，判定为 A 股
     if re.match(r'^\d{6}$', code):
@@ -116,6 +120,51 @@ def normalize_code(code):
         return code
     
     return code
+
+def is_hk_stock(code: str) -> bool:
+    """判断是否为港股代码"""
+    code = code.strip().upper()
+    
+    # 以.HK结尾
+    if code.endswith('.HK'):
+        return True
+    
+    # 以HK.开头
+    if code.startswith('HK.'):
+        return True
+    
+    # 纯数字代码判断
+    if code.isdigit():
+        # 5位数字（港股通常是5位）
+        if len(code) == 5:
+            return True
+        # 4位数字且以0开头（如0700）
+        if len(code) == 4 and code.startswith('0'):
+            return True
+        # 3位数字且以0开头（如700，补零后是00700）
+        if len(code) == 3 and code.startswith('0'):
+            return True
+    
+    return False
+
+def normalize_hk_code(code: str) -> str:
+    """标准化港股代码格式"""
+    code = code.strip().upper()
+    
+    # 移除.HK后缀
+    if code.endswith('.HK'):
+        code = code[:-3]
+    
+    # 移除HK.前缀
+    if code.startswith('HK.'):
+        code = code[3:]
+    
+    # 确保是5位数字
+    if code.isdigit():
+        code = code.zfill(5)
+    
+    # 返回标准格式：HK.00700
+    return f"HK.{code}"
 
 def is_china_stock_market_open():
     """
@@ -144,9 +193,22 @@ def is_china_stock_market_open():
 
 
 def get_name(symbol):
-    """获取股票名称 - 使用新浪财经接口"""
+    """获取股票名称 - 支持A股和港股"""
     try:
-        # 如果是标准化的代码，直接使用
+        # 港股使用免费数据源（AKShare/yfinance）
+        if symbol.startswith('HK.'):
+            code = symbol.replace('HK.', '')
+            
+            # 使用免费数据源获取股票名称
+            try:
+                from src.data.hk_data_sources import HKDataSources
+                name = HKDataSources.get_stock_name_fallback(code)
+                if name:
+                    return name
+            except Exception as e:
+                print(f"⚠️  获取港股名称失败 {symbol}: {e}")
+        
+        # A股使用新浪财经接口
         if symbol.startswith('sh') or symbol.startswith('sz'):
             # 新浪财经实时数据接口
             url = f"http://hq.sinajs.cn/list={symbol}"
@@ -360,11 +422,58 @@ def fetch_kline_data_fallback(symbol, scale=240, datalen=100):
         return None
 
 def fetch_kline_data(symbol, scale=240, datalen=100):
-    """主数据获取函数 - 使用新浪财经"""
+    """获取K线数据 - 支持A股和港股"""
+    # 港股使用免费数据源
+    if symbol.startswith('HK.'):
+        return fetch_kline_data_from_hk_sources(symbol, scale, datalen)
+    
+    # A股使用新浪财经API
     df = fetch_kline_data_from_sina(symbol, scale, datalen)
     if df is None or df.empty:
         df = fetch_kline_data_fallback(symbol, scale, datalen)
     return df
+
+def fetch_kline_data_from_hk_sources(symbol, scale=240, datalen=100):
+    """从免费数据源获取港股K线数据（新浪财经/东方财富/AKShare）"""
+    try:
+        from src.data.hk_data_sources import HKDataSources
+        
+        # 提取股票代码
+        code = symbol.replace('HK.', '')
+        
+        # 转换周期格式
+        period_map = {
+            240: '1d',   # 日线
+            60: '60m',  # 60分钟
+            30: '30m',  # 30分钟
+            15: '15m',  # 15分钟
+            5: '5m',    # 5分钟
+            1: '1m',    # 1分钟
+        }
+        
+        period = period_map.get(scale, '1d')
+        
+        print(f"  📡 从免费数据源获取港股数据: {symbol} period={period}")
+        print(f"    数据源: 新浪财经 → 东方财富 → AKShare")
+        
+        # 使用多个免费数据源（自动降级）
+        df = HKDataSources.get_kline_with_fallback(code, period=period, count=datalen)
+        
+        if df is not None and not df.empty:
+            print(f"    ✓ 获取到 {len(df)} 条数据")
+            return df
+        else:
+            print(f"  ⚠️  未获取到有效数据")
+            return None
+        
+    except ImportError:
+        # 不需要额外依赖，新浪财经和东方财富接口只需要requests
+        print(f"  ⚠️  模块导入失败，但会尝试使用新浪财经和东方财富接口")
+        return None
+    except Exception as e:
+        print(f"  ❌ 获取港股数据失败 {symbol}: {e}")
+        traceback.print_exc()
+        return None
 
 def fetch_alternative_1min_data(symbol, days=5):
     """替代方法获取1分钟数据"""
@@ -603,51 +712,95 @@ def resample_kline_data(df, period='W'):
         print(f"重采样失败: {e}")
         return None
 
-def get_market_indices_data():
-    """获取A股市场指数数据 - 使用新浪财经"""
+def get_market_indices_data(is_hk=False):
+    """获取市场指数数据 - 使用新浪财经"""
     indices_data = {}
     
-    # A股主要指数
-    a_indices = {
-        'sh000001': '上证指数',
-        'sz399001': '深证成指',
-        'sz399006': '创业板指',
-        'sh000688': '科创50',
-        'sh000300': '沪深300',
-        'sh000905': '中证500',
-        'sh000016': '上证50',
-        'sz399005': '中小板指'
-    }
-    
-    print("📊 获取A股指数数据...")
-    for code, name in a_indices.items():
-        print(f"  获取 {name}...")
+    if is_hk:
+        hk_indices = {
+            'HSI': '恒生指数',
+            'HSCEI': '恒生国企指数',
+            'HSTECH': '恒生科技指数',
+            'HSCCI': '恒生综合指数',
+            'CES100': '恒生中国企业精选100'
+        }
         
+        print("📊 获取港股指数数据...")
         try:
-            # 使用新浪财经接口获取指数数据
-            df = fetch_kline_data(code, 240, 150)
-            
-            if df is not None and not df.empty:
-                df = calculate_technical_indicators(df)
-                indices_data[code] = {
-                    'name': name,
-                    'data': df,
-                    'type': 'A'
-                }
-                print(f"    ✓ 获取成功: {len(df)} 条数据")
-            else:
-                print(f"    ❌ 获取失败")
+            import akshare as ak
         except Exception as e:
-            print(f"    ❌ 获取失败: {e}")
+            print(f"  ❌ AKShare不可用，无法获取港股指数: {e}")
+            return indices_data
+        
+        for code, name in hk_indices.items():
+            print(f"  获取 {name}...")
+            try:
+                df = ak.stock_hk_index_daily_sina(symbol=code)
+                if df is not None and not df.empty:
+                    df = df.rename(columns={
+                        'date': 'Date',
+                        'open': 'Open',
+                        'high': 'High',
+                        'low': 'Low',
+                        'close': 'Close',
+                        'volume': 'Volume'
+                    })
+                    df['Date'] = pd.to_datetime(df['Date'])
+                    df.set_index('Date', inplace=True)
+                    df.sort_index(inplace=True)
+                    df = df.tail(150)
+                    df = calculate_technical_indicators(df)
+                    indices_data[code] = {
+                        'name': name,
+                        'data': df,
+                        'type': 'HK'
+                    }
+                    print(f"    ✓ 获取成功: {len(df)} 条数据")
+                else:
+                    print(f"    ❌ 获取失败")
+            except Exception as e:
+                print(f"    ❌ 获取失败: {e}")
+    else:
+        a_indices = {
+            'sh000001': '上证指数',
+            'sz399001': '深证成指',
+            'sz399006': '创业板指',
+            'sh000688': '科创50',
+            'sh000300': '沪深300',
+            'sh000905': '中证500',
+            'sh000016': '上证50',
+            'sz399005': '中小板指'
+        }
+        
+        print("📊 获取A股指数数据...")
+        for code, name in a_indices.items():
+            print(f"  获取 {name}...")
+            
+            try:
+                # 使用新浪财经接口获取指数数据
+                df = fetch_kline_data(code, 240, 150)
+                
+                if df is not None and not df.empty:
+                    df = calculate_technical_indicators(df)
+                    indices_data[code] = {
+                        'name': name,
+                        'data': df,
+                        'type': 'A'
+                    }
+                    print(f"    ✓ 获取成功: {len(df)} 条数据")
+                else:
+                    print(f"    ❌ 获取失败")
+            except Exception as e:
+                print(f"    ❌ 获取失败: {e}")
     
     return indices_data
 
-def get_market_summary_analysis(indices_data):
+def get_market_summary_analysis(indices_data, market_label="A股"):
     """生成市场综合分析"""
     if not indices_data:
         return "【市场指数数据获取失败】\n\n"
     
-    analysis = "【A股市场综合分析】\n\n"
+    analysis = f"【{market_label}市场综合分析】\n\n"
     
     for code, info in indices_data.items():
         df = info['data']
@@ -693,12 +846,12 @@ def get_market_summary_analysis(indices_data):
     
     return analysis
 
-def get_market_sentiment_analysis(indices_data):
+def get_market_sentiment_analysis(indices_data, market_label="A股"):
     """生成市场情绪分析"""
     if not indices_data:
         return ""
     
-    analysis = "【市场情绪分析】\n\n"
+    analysis = f"【{market_label}市场情绪分析】\n\n"
     
     up_count = 0
     down_count = 0
@@ -1022,7 +1175,8 @@ def _build_report_summary(stock_name, stock_code, stock_data_map, indices_data):
         summary_lines.append(f"{stock_name}({stock_code}) 日线数据不足，无法生成核心趋势摘要。")
     
     if indices_data:
-        summary_lines.append(f"本次报告包含 {len(indices_data)} 个A股主要指数的综合分析。")
+        market_label = "港股" if stock_code.startswith("HK.") else "A股"
+        summary_lines.append(f"本次报告包含 {len(indices_data)} 个{market_label}主要指数的综合分析。")
     
     return summary_lines
 
@@ -1197,7 +1351,8 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
         story.append(Paragraph("一、市场指数综合分析", section_style))
         story.append(Spacer(1, 10))
         
-        market_analysis = get_market_summary_analysis(indices_data)
+        market_label = "港股" if stock_code.startswith("HK.") else "A股"
+        market_analysis = get_market_summary_analysis(indices_data, market_label=market_label)
         if market_analysis:
             for line in market_analysis.split('\n'):
                 if line.strip():
@@ -1254,7 +1409,7 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
         story.append(Paragraph("二、市场情绪分析", section_style))
         story.append(Spacer(1, 10))
         
-        sentiment_analysis = get_market_sentiment_analysis(indices_data)
+        sentiment_analysis = get_market_sentiment_analysis(indices_data, market_label=market_label)
         if sentiment_analysis:
             for line in sentiment_analysis.split('\n'):
                 if line.strip():
@@ -1461,15 +1616,20 @@ def process_multiple_stocks(stock_codes_input, output_folder):
         print(f"📁 临时目录: {temp_dir}")
         
         print("\n1️⃣  获取市场指数数据...")
-        indices_data = get_market_indices_data()
+        is_hk = stock_code.startswith('HK.')
+        indices_data = get_market_indices_data(is_hk=is_hk)
         print(f"✅ 获取到 {len(indices_data)} 个市场指数数据")
         
         print("\n2️⃣  获取个股数据...")
         stock_data_map = {}
+        
+        # 判断数据源
+        data_source = '新浪财经/东方财富' if is_hk else '新浪财经'
+        
         report_meta = {
             'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'data_source': '新浪财经',
-            'index_source': '新浪财经',
+            'data_source': data_source,
+            'index_source': '新浪财经(港股指数)' if is_hk else '新浪财经',
             'indicator_params': {
                 'ma_windows': [5, 10, 20, 60, 250],
                 'macd': [12, 26, 9],
@@ -1508,26 +1668,32 @@ def process_multiple_stocks(stock_codes_input, output_folder):
         print("  获取30分钟数据...")
         df_30m = fetch_kline_data(stock_code, 30, 100)
         if df_30m is not None:
-            df_30m = normalize_beijing_time(df_30m)
-            df_30m = filter_trading_hours(df_30m)
+            # 港股数据可能已经是正确时区，A股需要转换
+            if not is_hk:
+                df_30m = normalize_beijing_time(df_30m)
+                df_30m = filter_trading_hours(df_30m)
             df_30m = calculate_technical_indicators(df_30m)
             stock_data_map['30m'] = df_30m
         
         print("  获取5分钟数据...")
         df_5m = fetch_kline_data(stock_code, 5, 100)
         if df_5m is not None:
-            df_5m = normalize_beijing_time(df_5m)
-            df_5m = filter_trading_hours(df_5m)
+            # 港股数据可能已经是正确时区，A股需要转换
+            if not is_hk:
+                df_5m = normalize_beijing_time(df_5m)
+                df_5m = filter_trading_hours(df_5m)
             df_5m = calculate_technical_indicators(df_5m)
             stock_data_map['5m'] = df_5m
         
         print("  获取1分钟数据...")
         df_1m = fetch_kline_data(stock_code, 1, 100)
-        one_min_source = '新浪财经'
+        one_min_source = data_source
         
         if df_1m is not None and not df_1m.empty:
-            df_1m = normalize_beijing_time(df_1m)
-            df_1m = filter_trading_hours(df_1m)
+            # 港股数据可能已经是正确时区，A股需要转换
+            if not is_hk:
+                df_1m = normalize_beijing_time(df_1m)
+                df_1m = filter_trading_hours(df_1m)
             df_1m = calculate_technical_indicators(df_1m)
             stock_data_map['1m'] = df_1m
             print(f"    ✓ 1分钟: {len(df_1m)} 条数据")

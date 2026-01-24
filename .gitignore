@@ -35,3 +35,13 @@ logs/
 
 # Environment
 .env
+.env.local
+.env.*.local
+
+*.properties
+
+# 私钥文件
+*.key
+*.pem
+*.pkcs8
+private_key*

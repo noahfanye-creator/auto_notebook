@@ -48,11 +48,64 @@ jobs:
         # 你的脚本会生成 reports/ 文件夹，我们把里面的 zip 找出来
         find reports -name "*.zip" -exec cp {} final_delivery/stock_report.zip \;
 
+    - name: 上传报告到 Google Drive
+      if: success()
+      env:
+        GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+        GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+      run: |
+        if [ -z "$GDRIVE_SERVICE_ACCOUNT_JSON" ] || [ -z "$GDRIVE_FOLDER_ID" ]; then
+          echo "❌ 缺少 Google Drive 配置（GDRIVE_SERVICE_ACCOUNT_JSON / GDRIVE_FOLDER_ID）"
+          exit 1
+        fi
+        echo "$GDRIVE_SERVICE_ACCOUNT_JSON" > /tmp/gdrive.json
+        curl -fsSL https://rclone.org/install.sh | sudo bash
+        mkdir -p ~/.config/rclone
+        cat > ~/.config/rclone/rclone.conf <<EOF
+        [gdrive]
+        type = drive
+        scope = drive
+        service_account_file = /tmp/gdrive.json
+        root_folder_id = ${GDRIVE_FOLDER_ID}
+        EOF
+        RUN_FOLDER="stock-reports-${{ github.run_id }}"
+        rclone mkdir gdrive:"$RUN_FOLDER"
+        rclone copy "reports" gdrive:"$RUN_FOLDER" --include "*.pdf" --fast-list
+        FOLDER_ID=$(python - <<'PY'
+        import json
+        import subprocess
+        import sys
+        
+        run_folder = "${RUN_FOLDER}"
+        result = subprocess.run(
+            ["rclone", "lsjson", "gdrive:", "--dirs", "--max-depth", "1"],
+            capture_output=True, text=True, check=True
+        )
+        items = json.loads(result.stdout)
+        for item in items:
+            if item.get("Name") == run_folder and item.get("ID"):
+                print(item["ID"])
+                sys.exit(0)
+        sys.exit(1)
+        PY
+        )
+        if [ -z "$FOLDER_ID" ]; then
+          echo "❌ 无法获取Google Drive子文件夹ID"
+          exit 1
+        fi
+        echo "DRIVE_FOLDER_NAME=$RUN_FOLDER" >> $GITHUB_OUTPUT
+        echo "DRIVE_LINK=https://drive.google.com/drive/folders/${FOLDER_ID}" >> $GITHUB_OUTPUT
+      id: upload_drive
+
     - name: 发送报告到 Telegram 🚀
       if: success()
       uses: appleboy/telegram-action@master
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+<<<<<<< HEAD
         document: final_delivery/stock_report.zip
         caption: "✅ Felix，机器人分析完成！包含芯碁微装等 5 支核心股。"
+=======
+        message: "✅ Felix，机器人已完成股票分析报告\n📁 Google Drive 文件夹: ${{ steps.upload_drive.outputs.DRIVE_LINK }}\n📂 子文件夹: ${{ steps.upload_drive.outputs.DRIVE_FOLDER_NAME }}"
+>>>>>>> 82d3f27 (完善报告生成与Drive通知流程)

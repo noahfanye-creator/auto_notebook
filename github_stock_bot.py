@@ -24,41 +24,75 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
 
+# 可选依赖：akshare
+try:
+    import akshare as ak
+except Exception:
+    ak = None
+
 # === 目标股票列表 ===
 TARGET_STOCKS = ["600460", "300474", "300623", "300420"]
 
 # ==================== 1. 字体配置 ====================
 def setup_fonts():
-    """设置字体（适配Linux环境）"""
+    """设置字体（适配macOS/Linux环境）"""
     print("📱 系统字体配置...")
     
     font_name = 'Helvetica'
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 尝试注册中文字体（Linux环境）
+    # 优先使用项目内置中文字体
+    local_font = os.path.join(current_dir, "SimHei.ttf")
+    if os.path.exists(local_font):
+        try:
+            pdfmetrics.registerFont(TTFont('SimHeiLocal', local_font))
+            font_name = 'SimHeiLocal'
+            print("✅ 使用本地字体: SimHei.ttf")
+            return font_name
+        except Exception as e:
+            print(f"⚠️  本地字体注册失败: {e}")
+    
+    # macOS字体
+    if sys.platform == 'darwin':
+        mac_fonts = [
+            ('/System/Library/Fonts/PingFang.ttc', 'PingFang'),
+            ('/System/Library/Fonts/STHeiti Light.ttc', 'STHeiti'),
+            ('/System/Library/Fonts/Hiragino Sans GB.ttc', 'Hiragino'),
+            ('/Library/Fonts/Arial Unicode.ttf', 'ArialUnicode'),
+        ]
+        for font_path, font_alias in mac_fonts:
+            if os.path.exists(font_path):
+                try:
+                    pdfmetrics.registerFont(TTFont(font_alias, font_path))
+                    font_name = font_alias
+                    print(f"✅ 成功注册字体: {font_alias}")
+                    return font_name
+                except Exception as e:
+                    print(f"⚠️  字体注册失败 {font_alias}: {e}")
+    
+    # Linux字体
     linux_fonts = [
         ('/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc', 'WenQuanYiZenHei'),
         ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 'DejaVuSans'),
     ]
-    
     for font_path, font_alias in linux_fonts:
         if os.path.exists(font_path):
             try:
                 pdfmetrics.registerFont(TTFont(font_alias, font_path))
                 font_name = font_alias
                 print(f"✅ 成功注册字体: {font_alias}")
-                break
+                return font_name
             except Exception as e:
                 print(f"⚠️  字体注册失败 {font_alias}: {e}")
     
-    # 尝试使用系统字体
-    if font_name == 'Helvetica':
-        try:
-            from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-            pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
-            font_name = 'STSong-Light'
-            print("✅ 使用STSong-Light CID字体")
-        except:
-            print("⚠️  所有中文字体尝试失败,使用默认Helvetica")
+    # 兜底CID字体
+    try:
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
+        font_name = 'STSong-Light'
+        print("✅ 使用STSong-Light CID字体")
+    except:
+        print("⚠️  所有中文字体尝试失败,使用默认Helvetica")
     
     return font_name
 
@@ -83,6 +117,32 @@ def normalize_code(code):
     
     return code
 
+def is_china_stock_market_open():
+    """
+    检查今日是否为A股交易日（自动剔除法定节假日）
+    """
+    try:
+        if ak is None:
+            print("⚠️  akshare 未安装，跳过交易日检查")
+            return True
+        # 获取上证指数最新行情
+        df = ak.stock_zh_index_daily(symbol="sh000001")
+        if df is None or df.empty:
+            return True # 接口故障时默认运行，防止漏发
+        
+        # 比较最后交易日与系统今日日期
+        last_trade_date = pd.to_datetime(df.iloc[-1]['date']).date()
+        today = datetime.now().date()
+        
+        # 如果上证最后交易日期不是今天，说明今天休市
+        if last_trade_date != today:
+            return False
+        return True
+    except Exception as e:
+        print(f"⚠️ 交易日检查异常: {e}")
+        return True
+
+
 def get_name(symbol):
     """获取股票名称 - 使用新浪财经接口"""
     try:
@@ -98,7 +158,7 @@ def get_name(symbol):
             }
             
             response = requests.get(url, headers=headers, timeout=10)
-            response.encoding = 'gb2312'
+            response.encoding = 'gbk'
             
             if response.status_code == 200:
                 content = response.text
@@ -258,9 +318,53 @@ def fetch_kline_data_from_sina(symbol, scale=240, datalen=100):
         traceback.print_exc()
         return None
 
+def fetch_kline_data_fallback(symbol, scale=240, datalen=100):
+    """新浪K线备用接口（json_v2）"""
+    try:
+        url = (
+            "http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+            f"CN_MarketData.getKLineData?symbol={symbol}&scale={scale}&ma=no&datalen={datalen}"
+        )
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=20)
+        if response.status_code != 200:
+            return None
+        
+        data = response.json()
+        if not data:
+            return None
+        
+        df = pd.DataFrame(data)
+        df.rename(columns={
+            'day': 'Date',
+            'open': 'Open',
+            'high': 'High',
+            'low': 'Low',
+            'close': 'Close',
+            'volume': 'Volume'
+        }, inplace=True)
+        
+        cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        for col in cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        
+        return df if not df.empty else None
+    except Exception as e:
+        print(f"  ❌ 备用接口获取失败 {symbol} scale={scale}: {e}")
+        return None
+
 def fetch_kline_data(symbol, scale=240, datalen=100):
     """主数据获取函数 - 使用新浪财经"""
-    return fetch_kline_data_from_sina(symbol, scale, datalen)
+    df = fetch_kline_data_from_sina(symbol, scale, datalen)
+    if df is None or df.empty:
+        df = fetch_kline_data_fallback(symbol, scale, datalen)
+    return df
 
 def fetch_alternative_1min_data(symbol, days=5):
     """替代方法获取1分钟数据"""
@@ -318,6 +422,58 @@ def fetch_alternative_1min_data(symbol, days=5):
     except Exception as e:
         print(f"  替代方法获取1分钟数据失败: {e}")
         return None
+
+def normalize_beijing_time(df):
+    """将时间索引规范为北京时间（无时区）"""
+    if df is None or df.empty:
+        return df
+    
+    if not isinstance(df.index, pd.DatetimeIndex):
+        return df
+    
+    if df.index.tz is None:
+        return df
+    
+    try:
+        df = df.copy()
+        df.index = df.index.tz_convert('Asia/Shanghai').tz_localize(None)
+        return df
+    except Exception:
+        return df
+
+def filter_trading_hours(df):
+    """仅保留A股交易时段数据"""
+    if df is None or df.empty:
+        return df
+    
+    try:
+        df = normalize_beijing_time(df)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            return df
+        
+        morning = df.between_time('09:30', '11:30')
+        afternoon = df.between_time('13:00', '15:00')
+        filtered = pd.concat([morning, afternoon]).sort_index()
+        return filtered
+    except Exception:
+        return df
+
+def is_intraday_data(df):
+    """判断是否为日内数据（含时间）"""
+    if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
+        return False
+    return any((df.index.hour != 0) | (df.index.minute != 0))
+
+def format_beijing_time(dt):
+    """格式化北京时间"""
+    if dt is None:
+        return "未知"
+    if getattr(dt, "tzinfo", None) is not None:
+        try:
+            dt = dt.tz_convert('Asia/Shanghai').tz_localize(None)
+        except Exception:
+            pass
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
 
 def calculate_technical_indicators(df):
     """计算技术指标（增强版）"""
@@ -596,7 +752,7 @@ def get_market_sentiment_analysis(indices_data):
 
 # ==================== 3. 图表生成模块 ====================
 
-def create_candle_chart(df, title, filename):
+def create_candle_chart(df, title, filename, max_points=60):
     """创建K线图表（增强版，添加成交量和量比图表）"""
     if df is None or len(df) < 5:
         return False
@@ -606,18 +762,44 @@ def create_candle_chart(df, title, filename):
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
+        import matplotlib.font_manager as fm
         
-        plot_data = df.tail(min(60, len(df))).copy()
+        plot_data = df.tail(min(max_points, len(df))).copy()
+        plot_data = normalize_beijing_time(plot_data)
         
         fig, axes = plt.subplots(4, 1, figsize=(12, 12), 
                                  gridspec_kw={'height_ratios': [3, 1, 1, 1]})
         
         ax1, ax2, ax3, ax4 = axes
         
-        plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
-        plt.rcParams['axes.unicode_minus'] = False
+        # 设置中文字体，避免乱码
+        font_paths = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "SimHei.ttf"),
+            '/System/Library/Fonts/PingFang.ttc',
+            '/System/Library/Fonts/STHeiti Light.ttc',
+            '/System/Library/Fonts/Hiragino Sans GB.ttc',
+            '/Library/Fonts/Arial Unicode.ttf',
+        ]
+        font_set = False
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                try:
+                    fm.fontManager.addfont(font_path)
+                    font_prop = fm.FontProperties(fname=font_path)
+                    font_name = font_prop.get_name()
+                    plt.rcParams['font.sans-serif'] = [font_name, 'Arial', 'DejaVu Sans']
+                    plt.rcParams['axes.unicode_minus'] = False
+                    font_set = True
+                    break
+                except Exception:
+                    continue
+        if not font_set:
+            plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
+            plt.rcParams['axes.unicode_minus'] = False
         
-        dates = plot_data.index
+        dates = plot_data.index.to_list()
+        intraday = is_intraday_data(plot_data)
+        x = np.arange(len(dates)) if intraday else mdates.date2num(dates)
         opens = plot_data['Open'].values
         highs = plot_data['High'].values
         lows = plot_data['Low'].values
@@ -630,9 +812,9 @@ def create_candle_chart(df, title, filename):
         for i, date in enumerate(dates):
             color = 'red' if closes[i] >= opens[i] else 'green'
             
-            ax1.plot([date, date], [highs[i], max(opens[i], closes[i])], 
+            ax1.plot([x[i], x[i]], [highs[i], max(opens[i], closes[i])], 
                     color=color, linewidth=1)
-            ax1.plot([date, date], [min(opens[i], closes[i]), lows[i]], 
+            ax1.plot([x[i], x[i]], [min(opens[i], closes[i]), lows[i]], 
                     color=color, linewidth=1)
             
             from matplotlib.patches import Rectangle
@@ -642,7 +824,7 @@ def create_candle_chart(df, title, filename):
             
             if body_height > 0:
                 rect = Rectangle(
-                    (mdates.date2num(date) - 0.3, body_bottom),
+                    (x[i] - 0.3, body_bottom),
                     0.6,
                     body_height,
                     facecolor=color,
@@ -652,16 +834,16 @@ def create_candle_chart(df, title, filename):
                 ax1.add_patch(rect)
         
         if 'MA5' in plot_data.columns:
-            ax1.plot(dates, plot_data['MA5'], 'orange', linewidth=1.5, label='MA5')
+            ax1.plot(x, plot_data['MA5'], 'orange', linewidth=1.5, label='MA5')
         if 'MA10' in plot_data.columns:
-            ax1.plot(dates, plot_data['MA10'], 'blue', linewidth=1.5, label='MA10')
+            ax1.plot(x, plot_data['MA10'], 'blue', linewidth=1.5, label='MA10')
         if 'MA20' in plot_data.columns:
-            ax1.plot(dates, plot_data['MA20'], 'purple', linewidth=1.5, label='MA20')
+            ax1.plot(x, plot_data['MA20'], 'purple', linewidth=1.5, label='MA20')
         
         if 'BB_Upper' in plot_data.columns:
-            ax1.plot(dates, plot_data['BB_Upper'], 'gray', linewidth=1, label='BB Upper', alpha=0.5)
-            ax1.plot(dates, plot_data['BB_Middle'], 'black', linewidth=1, label='BB Middle', alpha=0.5)
-            ax1.plot(dates, plot_data['BB_Lower'], 'gray', linewidth=1, label='BB Lower', alpha=0.5)
+            ax1.plot(x, plot_data['BB_Upper'], 'gray', linewidth=1, label='BB Upper', alpha=0.5)
+            ax1.plot(x, plot_data['BB_Middle'], 'black', linewidth=1, label='BB Middle', alpha=0.5)
+            ax1.plot(x, plot_data['BB_Lower'], 'gray', linewidth=1, label='BB Lower', alpha=0.5)
         
         english_title = title.replace('日线', 'Daily').replace('周线', 'Weekly')\
                             .replace('月线', 'Monthly').replace('分钟', 'Min')
@@ -670,28 +852,32 @@ def create_candle_chart(df, title, filename):
         ax1.legend(loc='upper left', fontsize='small')
         ax1.grid(True, alpha=0.3)
         
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M' if len(dates) > 20 else '%H:%M'))
-        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
+        if not intraday:
+            ax1.xaxis_date()
+            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
         
         # MACD
         if 'MACD' in plot_data.columns:
             macd_colors = ['red' if v >= 0 else 'green' for v in plot_data['MACD']]
-            ax2.bar(dates, plot_data['MACD'], color=macd_colors, alpha=0.7, width=0.8)
-            ax2.plot(dates, plot_data['DIF'], 'black', linewidth=1.5, label='DIF')
-            ax2.plot(dates, plot_data['DEA'], 'orange', linewidth=1.5, label='DEA')
+            ax2.bar(x, plot_data['MACD'], color=macd_colors, alpha=0.7, width=0.8)
+            ax2.plot(x, plot_data['DIF'], 'black', linewidth=1.5, label='DIF')
+            ax2.plot(x, plot_data['DEA'], 'orange', linewidth=1.5, label='DEA')
             ax2.axhline(y=0, color='gray', linestyle='-', linewidth=0.5, alpha=0.5)
         
         ax2.set_ylabel('MACD')
         ax2.legend(loc='upper left', fontsize='small')
         ax2.grid(True, alpha=0.3)
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M' if len(dates) > 20 else '%H:%M'))
-        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
+        if not intraday:
+            ax2.xaxis_date()
+            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
         
         # KDJ
         if 'K' in plot_data.columns and 'D' in plot_data.columns and 'J' in plot_data.columns:
-            ax3.plot(dates, plot_data['K'], 'blue', linewidth=1.5, label='K')
-            ax3.plot(dates, plot_data['D'], 'orange', linewidth=1.5, label='D')
-            ax3.plot(dates, plot_data['J'], 'purple', linewidth=1.5, label='J')
+            ax3.plot(x, plot_data['K'], 'blue', linewidth=1.5, label='K')
+            ax3.plot(x, plot_data['D'], 'orange', linewidth=1.5, label='D')
+            ax3.plot(x, plot_data['J'], 'purple', linewidth=1.5, label='J')
             ax3.axhline(y=80, color='red', linestyle='--', linewidth=0.5, alpha=0.5)
             ax3.axhline(y=20, color='green', linestyle='--', linewidth=0.5, alpha=0.5)
             ax3.axhline(y=50, color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
@@ -700,20 +886,22 @@ def create_candle_chart(df, title, filename):
         ax3.set_ylim(-20, 120)
         ax3.legend(loc='upper left', fontsize='small')
         ax3.grid(True, alpha=0.3)
-        ax3.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M' if len(dates) > 20 else '%H:%M'))
-        plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45)
+        if not intraday:
+            ax3.xaxis_date()
+            ax3.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45)
         
         # 成交量+量比
         ax4_volume = ax4
         ax4_ratio = ax4.twinx()
         
         volume_colors = ['red' if closes[i] >= opens[i] else 'green' for i in range(len(dates))]
-        ax4_volume.bar(dates, volumes, color=volume_colors, alpha=0.7, width=0.8, label='Volume')
+        ax4_volume.bar(x, volumes, color=volume_colors, alpha=0.7, width=0.8, label='Volume')
         
         if 'Volume_MA5' in plot_data.columns:
-            ax4_volume.plot(dates, plot_data['Volume_MA5'], 'orange', linewidth=1.5, label='Volume MA5')
+            ax4_volume.plot(x, plot_data['Volume_MA5'], 'orange', linewidth=1.5, label='Volume MA5')
         if 'Volume_MA10' in plot_data.columns:
-            ax4_volume.plot(dates, plot_data['Volume_MA10'], 'blue', linewidth=1.5, label='Volume MA10')
+            ax4_volume.plot(x, plot_data['Volume_MA10'], 'blue', linewidth=1.5, label='Volume MA10')
         
         ax4_volume.set_xlabel('Date')
         ax4_volume.set_ylabel('Volume', color='black')
@@ -723,7 +911,7 @@ def create_candle_chart(df, title, filename):
             ax4_volume.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
         
         if volume_ratios is not None:
-            ax4_ratio.plot(dates, volume_ratios, 'purple', linewidth=2, label='Volume Ratio', linestyle='-', marker='o', markersize=3)
+            ax4_ratio.plot(x, volume_ratios, 'purple', linewidth=2, label='Volume Ratio', linestyle='-', marker='o', markersize=3)
             ax4_ratio.set_ylabel('Volume Ratio', color='purple')
             ax4_ratio.tick_params(axis='y', labelcolor='purple')
             
@@ -737,8 +925,17 @@ def create_candle_chart(df, title, filename):
         
         ax4_volume.set_title('Volume & Volume Ratio Analysis', fontsize=12, fontweight='bold')
         ax4_volume.grid(True, alpha=0.3)
-        ax4_volume.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M' if len(dates) > 20 else '%H:%M'))
-        plt.setp(ax4_volume.xaxis.get_majorticklabels(), rotation=45)
+        if not intraday:
+            ax4_volume.xaxis_date()
+            ax4_volume.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            plt.setp(ax4_volume.xaxis.get_majorticklabels(), rotation=45)
+        else:
+            tick_count = min(6, len(x))
+            tick_positions = np.linspace(0, len(x) - 1, tick_count, dtype=int)
+            tick_labels = [dates[i].strftime('%m-%d %H:%M') for i in tick_positions]
+            for ax in [ax1, ax2, ax3, ax4_volume]:
+                ax.set_xticks(tick_positions)
+                ax.set_xticklabels(tick_labels, rotation=45)
         
         plt.tight_layout()
         plt.savefig(filename, dpi=120, bbox_inches='tight', facecolor='white')
@@ -753,6 +950,7 @@ def create_candle_chart(df, title, filename):
             
     except Exception as e:
         print(f"   图表生成失败: {str(e)[:100]}")
+        traceback.print_exc()
         return False
 
 def create_indices_charts(indices_data, temp_dir):
@@ -767,12 +965,105 @@ def create_indices_charts(indices_data, temp_dir):
             img_path = os.path.join(temp_dir, f"index_{code}.png")
             title = f"{name} 日线"
             
-            if create_candle_chart(df, title, img_path):
+            if create_candle_chart(df, title, img_path, max_points=60):
                 charts_created += 1
     
     return charts_created
 
 # ==================== 4. PDF报告生成 ====================
+
+def _format_range(df):
+    """格式化数据区间"""
+    if df is None or df.empty:
+        return "无数据"
+    
+    start = df.index.min()
+    end = df.index.max()
+    if pd.isna(start) or pd.isna(end):
+        return "无数据"
+    
+    needs_time = any([
+        getattr(start, "hour", 0) != 0,
+        getattr(start, "minute", 0) != 0,
+        getattr(end, "hour", 0) != 0,
+        getattr(end, "minute", 0) != 0
+    ])
+    fmt = "%Y-%m-%d %H:%M" if needs_time else "%Y-%m-%d"
+    return f"{start.strftime(fmt)} ~ {end.strftime(fmt)} ({len(df)}条)"
+
+def _get_trend_status(last):
+    """根据均线判断趋势"""
+    if last is None:
+        return "未知"
+    if all(k in last for k in ['MA5', 'MA10', 'MA20']):
+        if last['MA5'] > last['MA10'] > last['MA20']:
+            return "多头排列"
+        if last['MA5'] < last['MA10'] < last['MA20']:
+            return "空头排列"
+    return "震荡/中性"
+
+def _build_report_summary(stock_name, stock_code, stock_data_map, indices_data):
+    """生成结构化摘要文本"""
+    summary_lines = []
+    day_df = stock_data_map.get('day')
+    
+    if day_df is not None and not day_df.empty:
+        last = day_df.iloc[-1]
+        trend = _get_trend_status(last)
+        rsi_status = "中性"
+        if 'RSI' in last:
+            rsi_status = "超买" if last['RSI'] > 70 else ("超卖" if last['RSI'] < 30 else "中性")
+        macd_status = "多头" if last.get('MACD', 0) > 0 else "空头"
+        
+        summary_lines.append(
+            f"{stock_name}({stock_code}) 日线收盘: {last['Close']:.2f}，趋势: {trend}，RSI: {rsi_status}，MACD: {macd_status}。"
+        )
+    else:
+        summary_lines.append(f"{stock_name}({stock_code}) 日线数据不足，无法生成核心趋势摘要。")
+    
+    if indices_data:
+        summary_lines.append(f"本次报告包含 {len(indices_data)} 个A股主要指数的综合分析。")
+    
+    return summary_lines
+
+def _build_parameters_table(meta, stock_data_map, indices_data):
+    """生成参数与数据范围表格"""
+    indicator_params = meta.get('indicator_params', {})
+    indicator_text = (
+        f"MA:{','.join(map(str, indicator_params.get('ma_windows', [])))}; "
+        f"MACD:{'/'.join(map(str, indicator_params.get('macd', [])))}; "
+        f"RSI:{indicator_params.get('rsi', '')}; "
+        f"BB:{indicator_params.get('boll', '')}; "
+        f"KDJ:{indicator_params.get('kdj', '')}; "
+        f"WR:{indicator_params.get('wr', '')}; "
+        f"VOL_MA:{','.join(map(str, indicator_params.get('volume_ma', [])))}"
+    )
+    
+    table_data = [
+        ['项目', '说明'],
+        ['生成时间', meta.get('generated_at', '')],
+        ['数据来源', meta.get('data_source', '未知')],
+        ['指数来源', meta.get('index_source', '未知')],
+        ['1分钟数据来源', meta.get('one_min_source', '未知')],
+        ['日线范围', _format_range(stock_data_map.get('day'))],
+        ['周线范围', _format_range(stock_data_map.get('week'))],
+        ['月线范围', _format_range(stock_data_map.get('month'))],
+        ['30分钟范围', _format_range(stock_data_map.get('30m'))],
+        ['5分钟范围', _format_range(stock_data_map.get('5m'))],
+        ['1分钟范围', _format_range(stock_data_map.get('1m'))],
+        ['指标参数', indicator_text]
+    ]
+    
+    if indices_data:
+        index_ranges = [
+            _format_range(info.get('data'))
+            for info in indices_data.values()
+            if info.get('data') is not None
+        ]
+        if index_ranges:
+            table_data.insert(5, ['指数数据范围', f"{len(index_ranges)} 个指数，示例: {index_ranges[0]}"])
+    
+    return table_data
 
 def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indices_data, save_path, temp_dir):
     """创建包含市场指数分析的PDF报告（增强版）"""
@@ -807,6 +1098,24 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
             spaceAfter=20
         )
         
+        price_style = ParagraphStyle(
+            name='PriceStyle',
+            parent=styles['Heading2'],
+            fontName=FONT_NAME,
+            fontSize=18,
+            alignment=1,
+            spaceAfter=8
+        )
+        
+        change_style = ParagraphStyle(
+            name='ChangeStyle',
+            parent=styles['Heading2'],
+            fontName=FONT_NAME,
+            fontSize=14,
+            alignment=1,
+            spaceAfter=15
+        )
+        
         section_style = ParagraphStyle(
             name='SectionTitle',
             parent=styles['Heading2'],
@@ -830,12 +1139,58 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
         story.append(Spacer(1, 50))
         story.append(Paragraph(f"{stock_name}技术分析报告", title_style))
         story.append(Paragraph(f"({stock_code})", subtitle_style))
-        story.append(Spacer(1, 30))
+        story.append(Spacer(1, 20))
+        
+        day_df = stock_data_map.get('day')
+        if day_df is not None and len(day_df) >= 2:
+            last = day_df.iloc[-1]
+            prev = day_df.iloc[-2]
+            latest_price = last.get('Close', 0)
+            prev_close = prev.get('Close', latest_price)
+            change = latest_price - prev_close
+            change_percent = (change / prev_close * 100) if prev_close else 0
+            data_time = format_beijing_time(day_df.index[-1])
+            
+            story.append(Paragraph(f"最新价格: {latest_price:.2f}", price_style))
+            if change >= 0:
+                change_style.textColor = colors.red
+                change_text = f"涨跌幅: +{change:.2f} (+{change_percent:.2f}%)"
+            else:
+                change_style.textColor = colors.green
+                change_text = f"涨跌幅: {change:.2f} ({change_percent:.2f}%)"
+            story.append(Paragraph(change_text, change_style))
+            story.append(Paragraph(f"数据时间: {data_time}", normal_style))
+        else:
+            story.append(Paragraph("最新价格数据获取中...", normal_style))
+        
+        story.append(Spacer(1, 10))
         story.append(Paragraph(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
         story.append(Spacer(1, 20))
         story.append(Paragraph("【数据说明】", normal_style))
         story.append(Paragraph("本报告仅提供技术指标数据计算和展示，不包含任何投资建议或操作指导。", normal_style))
         story.append(Paragraph("所有数据仅供参考，不构成任何投资决策依据。", normal_style))
+        story.append(PageBreak())
+        
+        # 结构化摘要与参数信息
+        story.append(Paragraph("报告摘要", section_style))
+        for line in _build_report_summary(stock_name, stock_code, stock_data_map, indices_data):
+            story.append(Paragraph(line, normal_style))
+        story.append(Spacer(1, 10))
+        
+        meta = stock_data_map.get('_meta', {})
+        if meta:
+            story.append(Paragraph("数据与参数", section_style))
+            params_table = _build_parameters_table(meta, stock_data_map, indices_data)
+            params_table_obj = Table(params_table, colWidths=[110, 400])
+            params_table_obj.setStyle(TableStyle([
+                ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
+                ('FONTSIZE', (0,0), (-1,-1), 8),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ]))
+            story.append(params_table_obj)
+        
         story.append(PageBreak())
         
         # 第一部分：市场指数综合分析
@@ -1111,6 +1466,20 @@ def process_multiple_stocks(stock_codes_input, output_folder):
         
         print("\n2️⃣  获取个股数据...")
         stock_data_map = {}
+        report_meta = {
+            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'data_source': '新浪财经',
+            'index_source': '新浪财经',
+            'indicator_params': {
+                'ma_windows': [5, 10, 20, 60, 250],
+                'macd': [12, 26, 9],
+                'rsi': 14,
+                'boll': 20,
+                'kdj': 9,
+                'wr': 14,
+                'volume_ma': [5, 10]
+            }
+        }
         
         print("  获取日线数据...")
         df_day = fetch_kline_data(stock_code, 240, 100)
@@ -1137,49 +1506,34 @@ def process_multiple_stocks(stock_codes_input, output_folder):
             stock_data_map['month'] = df_month
         
         print("  获取30分钟数据...")
-        df_30m = fetch_kline_data(stock_code, 30, 150)
+        df_30m = fetch_kline_data(stock_code, 30, 100)
         if df_30m is not None:
+            df_30m = normalize_beijing_time(df_30m)
+            df_30m = filter_trading_hours(df_30m)
             df_30m = calculate_technical_indicators(df_30m)
             stock_data_map['30m'] = df_30m
         
         print("  获取5分钟数据...")
-        df_5m = fetch_kline_data(stock_code, 5, 150)
+        df_5m = fetch_kline_data(stock_code, 5, 100)
         if df_5m is not None:
+            df_5m = normalize_beijing_time(df_5m)
+            df_5m = filter_trading_hours(df_5m)
             df_5m = calculate_technical_indicators(df_5m)
             stock_data_map['5m'] = df_5m
         
         print("  获取1分钟数据...")
-        df_1m = fetch_kline_data(stock_code, 1, 150)
-        
-        if df_1m is None or df_1m.empty:
-            print("  标准方法获取1分钟数据失败，尝试替代方法...")
-            df_1m = fetch_alternative_1min_data(stock_code, days=3)
+        df_1m = fetch_kline_data(stock_code, 1, 100)
+        one_min_source = '新浪财经'
         
         if df_1m is not None and not df_1m.empty:
+            df_1m = normalize_beijing_time(df_1m)
+            df_1m = filter_trading_hours(df_1m)
             df_1m = calculate_technical_indicators(df_1m)
             stock_data_map['1m'] = df_1m
             print(f"    ✓ 1分钟: {len(df_1m)} 条数据")
         else:
-            print(f"    ❌ 无法获取1分钟数据，将使用模拟数据")
-            try:
-                last_price = df_day.iloc[-1]['Close'] if df_day is not None and not df_day.empty else 10.0
-                dates = pd.date_range(end=datetime.now(), periods=60, freq='1min')
-                prices = last_price + np.random.randn(60) * last_price * 0.01
-                volumes = np.random.randint(10000, 50000, 60)
-                
-                df_sim = pd.DataFrame({
-                    'Open': prices * 0.99,
-                    'High': prices * 1.01,
-                    'Low': prices * 0.98,
-                    'Close': prices,
-                    'Volume': volumes
-                }, index=dates)
-                
-                df_sim = calculate_technical_indicators(df_sim)
-                stock_data_map['1m'] = df_sim
-                print(f"    ⚠️  使用模拟1分钟数据: {len(df_sim)} 条数据")
-            except Exception as e:
-                print(f"    ❌ 模拟数据生成失败: {e}")
+            print("    ❌ 无法获取真实1分钟数据，跳过1分钟图表")
+            one_min_source = '无数据'
         
         print(f"\n3️⃣  生成图表...")
         
@@ -1187,19 +1541,19 @@ def process_multiple_stocks(stock_codes_input, output_folder):
         print(f"   生成 {index_charts_count} 个指数图表")
         
         chart_configs = [
-            ('day', stock_data_map.get('day'), f"{stock_name} 日线"),
-            ('week', stock_data_map.get('week'), f"{stock_name} 周线"),
-            ('month', stock_data_map.get('month'), f"{stock_name} 月线"),
-            ('30m', stock_data_map.get('30m'), f"{stock_name} 30分钟"),
-            ('5m', stock_data_map.get('5m'), f"{stock_name} 5分钟"),
-            ('1m', stock_data_map.get('1m'), f"{stock_name} 1分钟"),
+            ('day', stock_data_map.get('day'), f"{stock_name} 日线", 60),
+            ('week', stock_data_map.get('week'), f"{stock_name} 周线", 60),
+            ('month', stock_data_map.get('month'), f"{stock_name} 月线", 60),
+            ('30m', stock_data_map.get('30m'), f"{stock_name} 30分钟", 100),
+            ('5m', stock_data_map.get('5m'), f"{stock_name} 5分钟", 100),
+            ('1m', stock_data_map.get('1m'), f"{stock_name} 1分钟", 100),
         ]
         
         stock_charts_count = 0
-        for key, df, title in chart_configs:
+        for key, df, title, max_points in chart_configs:
             if df is not None and len(df) >= 5:
                 img_path = os.path.join(temp_dir, f"{key}.png")
-                if create_candle_chart(df, title, img_path):
+                if create_candle_chart(df, title, img_path, max_points=max_points):
                     stock_charts_count += 1
         
         print(f"✅ 图表生成完成: 个股{stock_charts_count}个, 指数{index_charts_count}个")
@@ -1210,6 +1564,9 @@ def process_multiple_stocks(stock_codes_input, output_folder):
         safe_name = re.sub(r'[\\/*?:"<>|]', '_', stock_name)
         pdf_filename = f"{safe_name}_{stock_code}_增强分析报告.pdf"
         pdf_path = os.path.join(output_folder, pdf_filename)
+        
+        report_meta['one_min_source'] = one_min_source
+        stock_data_map['_meta'] = report_meta
         
         success = create_pdf_with_market_analysis(
             stock_code, stock_name, stock_data_map, indices_data, pdf_path, temp_dir
@@ -1272,6 +1629,18 @@ def create_zip_archive(reports_folder, zip_filename=None):
 
 def main():
     """主程序"""
+# 1. 检查是否为手动模式
+    is_manual = '--mode' in sys.argv and 'manual' in sys.argv
+    
+    # 2. 如果不是手动点，而是 GitHub Actions 自动跑，则检查开盘状态
+    if not is_manual:
+        print("🕒 正在检查 A 股开盘状态...")
+        if not is_china_stock_market_open():
+            print("☕ 今日为法定节假日或休市，跳过分析报告推送。")
+            return # 关键：直接在这里退出程序，后续代码不执行
+    
+    # 3. 只有开盘或是手动触发，才会继续执行下面的逻辑...
+    print("🚀 市场已开盘或手动触发，开始分析任务...")
     print("=" * 70)
     print("📊 股票分析报告生成器 (增强版)")
     print("数据来源: 新浪财经")

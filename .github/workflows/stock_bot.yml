@@ -1,6 +1,5 @@
 name: 股票分析机器人 🤖
 
-
 on:
   schedule:
     # 1. 每天早盘 (北京时间 09:15) -> UTC 01:15
@@ -9,8 +8,13 @@ on:
     - cron: '0 4 * * 1-5'
     # 3. 每天下午 (北京时间 15:00) -> UTC 07:00
     - cron: '0 7 * * 1-5'
-  workflow_dispatch: # 这个保留，让你能随时手动点击“发送报告”
-  
+  workflow_dispatch: # 手动触发配置
+    inputs:
+      stocks:
+        description: '输入股票代码（逗号分隔）'
+        required: false
+        default: '600460,300474,300623,300019'
+
 jobs:
   analyze-stocks:
     runs-on: ubuntu-latest
@@ -32,17 +36,22 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y fonts-wqy-zenhei
     
-    - name: 运行股票分析
+    - name: 运行股票分析并发送 Telegram
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
         export TZ='Asia/Shanghai'
-        # 修正文件名：确保运行的是 github_stock_bot.py
-        # 并传入你的 4 支目标股
-        python github_stock_bot.py --mode telegram --stocks '${{ github.event.inputs.stocks }}'
+        # 使用环境变量处理：优先使用手动输入的 stocks，如果没有则使用默认的 4 支股票
+        STOCKS="${{ github.event.inputs.stocks }}"
+        if [ -z "$STOCKS" ]; then
+          STOCKS="600460,300474,300623,300019"
+        fi
+        
+        # 运行脚本。注意：脚本内部已包含发送逻辑，无需额外插件
+        python github_stock_bot.py --mode telegram --stocks "$STOCKS"
     
-    - name: 上传报告到 GitHub (备用)
+    - name: 上传报告到 GitHub (作为备份存档)
       if: always()
       uses: actions/upload-artifact@v4
       with:
@@ -50,12 +59,3 @@ jobs:
         path: |
           reports/**/*.pdf
           reports/**/*.zip
-
-    - name: 发送报告到 Telegram 🚀
-      if: success()
-      uses: appleboy/telegram-action@master
-      with:
-        to: ${{ secrets.TELEGRAM_CHAT_ID }}
-        token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        document: reports/**/*.zip
-        caption: "✅ Felix，机器人已完成 4 支股票深度分析！\n📈 目标：士兰微、景嘉微、捷捷微电、五洋自控\n📊 指标：MACD, RSI, KDJ, 威廉, OBV"

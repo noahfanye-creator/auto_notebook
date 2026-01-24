@@ -191,6 +191,28 @@ def is_china_stock_market_open():
         print(f"⚠️ 交易日检查异常: {e}")
         return True
 
+def is_hk_stock_market_open():
+    """
+    检查今日是否为港股交易日
+    """
+    try:
+        if ak is None:
+            print("⚠️  akshare 未安装，跳过港股交易日检查")
+            return True
+        # 使用恒生指数判断港股交易日
+        df = ak.stock_hk_index_daily_sina(symbol="HSI")
+        if df is None or df.empty:
+            return True
+        
+        last_trade_date = pd.to_datetime(df.iloc[-1]['date']).date()
+        today = datetime.now().date()
+        
+        if last_trade_date != today:
+            return False
+        return True
+    except Exception as e:
+        print(f"⚠️ 港股交易日检查异常: {e}")
+        return True
 
 def get_name(symbol):
     """获取股票名称 - 支持A股和港股"""
@@ -1798,12 +1820,43 @@ def main():
 # 1. 检查是否为手动模式
     is_manual = '--mode' in sys.argv and 'manual' in sys.argv
     
-    # 2. 如果不是手动点，而是 GitHub Actions 自动跑，则检查开盘状态
+    # 2. 如果不是手动点，而是 GitHub Actions 自动跑，则检查交易日状态
     if not is_manual:
-        print("🕒 正在检查 A 股开盘状态...")
-        if not is_china_stock_market_open():
+        has_hk = any(is_hk_stock(code) for code in TARGET_STOCKS)
+        has_a = any(not is_hk_stock(code) for code in TARGET_STOCKS)
+        
+        a_open = True
+        hk_open = True
+        
+        if has_a:
+            print("🕒 正在检查 A 股交易日...")
+            a_open = is_china_stock_market_open()
+        if has_hk:
+            print("🕒 正在检查港股交易日...")
+            hk_open = is_hk_stock_market_open()
+        
+        if not a_open and not hk_open:
             print("☕ 今日为法定节假日或休市，跳过分析报告推送。")
-            return # 关键：直接在这里退出程序，后续代码不执行
+            return
+        
+        # 过滤休市市场的股票
+        filtered = []
+        skipped = []
+        for code in TARGET_STOCKS:
+            if is_hk_stock(code):
+                if hk_open:
+                    filtered.append(code)
+                else:
+                    skipped.append(code)
+            else:
+                if a_open:
+                    filtered.append(code)
+                else:
+                    skipped.append(code)
+        
+        if skipped:
+            print(f"☕ 跳过休市市场股票: {', '.join(skipped)}")
+        TARGET_STOCKS[:] = filtered
     
     # 3. 只有开盘或是手动触发，才会继续执行下面的逻辑...
     print("🚀 市场已开盘或手动触发，开始分析任务...")

@@ -52,14 +52,7 @@ jobs:
       run: |
         mkdir -p final_delivery
         # 选择本次运行生成的最新 ZIP
-        ZIP_PATH=$(python - <<'PY'
-import glob, os
-paths = glob.glob("reports/**/stock_reports_*.zip", recursive=True)
-paths = [p for p in paths if os.path.isfile(p)]
-paths.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-print(paths[0] if paths else "")
-PY
-        )
+        ZIP_PATH=$(python -c 'import glob,os; paths=glob.glob("reports/**/stock_reports_*.zip", recursive=True); paths=[p for p in paths if os.path.isfile(p)]; paths.sort(key=lambda p: os.path.getmtime(p), reverse=True); print(paths[0] if paths else "")')
         if [ -z "$ZIP_PATH" ]; then
           echo "❌ 未找到报告 ZIP"
           exit 1

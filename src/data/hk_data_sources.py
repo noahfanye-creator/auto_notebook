@@ -5,6 +5,7 @@
 
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -12,6 +13,20 @@ import pandas as pd
 import requests
 
 logger = logging.getLogger(__name__)
+
+def _request_with_retry(url, params=None, headers=None, timeout=10, retries=2, backoff=1.0):
+    """简单重试封装，缓解临时网络波动"""
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            return requests.get(url, params=params, headers=headers, timeout=timeout)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(backoff * (attempt + 1))
+    if last_exc:
+        raise last_exc
+    return None
 
 try:
     import akshare as ak
@@ -48,7 +63,7 @@ class HKDataSources:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://finance.sina.com.cn'
             }
-            response = requests.get(url, headers=headers, timeout=10)
+            response = _request_with_retry(url, headers=headers, timeout=10)
             response.encoding = 'gbk'
             
             if response.status_code == 200:
@@ -75,7 +90,7 @@ class HKDataSources:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://quote.eastmoney.com/'
             }
-            response = requests.get(url, params=params, headers=headers, timeout=10)
+            response = _request_with_retry(url, params=params, headers=headers, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 if data.get('data') and data['data'].get('f14'):
@@ -135,7 +150,7 @@ class HKDataSources:
                 'Accept': 'application/json'
             }
             
-            response = requests.get(url, params=params, headers=headers, timeout=15)
+            response = _request_with_retry(url, params=params, headers=headers, timeout=15)
             
             if response.status_code != 200:
                 return None
@@ -229,7 +244,7 @@ class HKDataSources:
                 'Referer': 'https://quote.eastmoney.com/'
             }
             
-            response = requests.get(url, params=params, headers=headers, timeout=15)
+            response = _request_with_retry(url, params=params, headers=headers, timeout=15)
             
             if response.status_code != 200:
                 return None

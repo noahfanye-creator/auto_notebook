@@ -103,9 +103,4 @@ jobs:
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-<<<<<<< HEAD
-        document: final_delivery/stock_report.zip
-        caption: "✅ Felix，机器人分析完成！包含芯碁微装等 5 支核心股。"
-=======
         message: "✅ Felix，机器人已完成股票分析报告\n📁 Google Drive 文件夹: ${{ steps.upload_drive.outputs.DRIVE_LINK }}\n📂 子文件夹: ${{ steps.upload_drive.outputs.DRIVE_FOLDER_NAME }}"
->>>>>>> 82d3f27 (完善报告生成与Drive通知流程)

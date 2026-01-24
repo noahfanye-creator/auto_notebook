@@ -166,6 +166,13 @@ def normalize_hk_code(code: str) -> str:
     # 返回标准格式：HK.00700
     return f"HK.{code}"
 
+def parse_stock_list(stocks_input: str):
+    """解析股票列表，支持逗号与空格分隔"""
+    if not stocks_input:
+        return []
+    normalized = stocks_input.replace(',', ' ').replace('，', ' ')
+    return [item for item in normalized.split() if item]
+
 def is_china_stock_market_open():
     """
     检查今日是否为A股交易日（自动剔除法定节假日）
@@ -1611,7 +1618,7 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
 
 def process_multiple_stocks(stock_codes_input, output_folder):
     """批量处理多个股票"""
-    stock_codes = stock_codes_input.split()
+    stock_codes = parse_stock_list(stock_codes_input)
     print(f"📊 批量分析 {len(stock_codes)} 个股票")
     
     successful_reports = []
@@ -1945,7 +1952,7 @@ if __name__ == "__main__":
             print("⚠️ Telegram模式需要配置环境变量")
         else:
             if args.stocks != ' '.join(TARGET_STOCKS):
-                TARGET_STOCKS = args.stocks.split()
+                TARGET_STOCKS = parse_stock_list(args.stocks)
             main()
     else:
         main()

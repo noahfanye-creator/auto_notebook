@@ -42,6 +42,9 @@ jobs:
         if [ -z "$STOCKS" ]; then
           STOCKS="688630,600460,300474,300623,300019"
         fi
+        STOCKS="${STOCKS//,/ }"
+        STOCKS="${STOCKS//，/ }"
+        STOCKS="$(echo "$STOCKS" | xargs)"
         # 使用 manual 模式，这样脚本只管生成 PDF，不会报错也不会重复发消息
         python github_stock_bot.py --mode manual --stocks "$STOCKS"
     
@@ -66,4 +69,4 @@ jobs:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         document: final_delivery/stock_report.zip
-        caption: "✅ Felix，机器人已完成股票分析报告（ZIP）"
+        message: "✅ Felix，机器人已完成股票分析报告（ZIP）"

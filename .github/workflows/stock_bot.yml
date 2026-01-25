@@ -36,8 +36,13 @@ jobs:
         sudo apt-get install -y fonts-wqy-zenhei
     
     - name: 运行股票分析
+      id: run_analysis
       run: |
         export TZ='Asia/Shanghai'
+        # 记录运行开始时间
+        echo "RUN_START_TIME=$(date +%s)" >> $GITHUB_ENV
+        echo "运行开始时间: $(date)"
+        
         STOCKS="${{ github.event.inputs.stocks }}"
         if [ -z "$STOCKS" ]; then
           STOCKS="688630,600460,300474,300623,300019"
@@ -47,21 +52,56 @@ jobs:
         STOCKS="$(echo "$STOCKS" | xargs)"
         # 使用 manual 模式，这样脚本只管生成 PDF，不会报错也不会重复发消息
         python github_stock_bot.py --mode manual --stocks "$STOCKS"
+        
+        # 检查是否有PDF文件生成
+        PDF_COUNT=$(find reports -name "*.pdf" -type f -newermt "@$RUN_START_TIME" | wc -l)
+        echo "本次运行生成的PDF数量: $PDF_COUNT"
+        echo "PDF_COUNT=$PDF_COUNT" >> $GITHUB_OUTPUT
     
     - name: 整理报告文件
+      if: steps.run_analysis.outputs.PDF_COUNT > 0
       run: |
         mkdir -p final_delivery
-        # 选择本次运行生成的最新 ZIP
-        ZIP_PATH=$(python -c 'import glob,os; paths=glob.glob("reports/**/stock_reports_*.zip", recursive=True); paths=[p for p in paths if os.path.isfile(p)]; paths.sort(key=lambda p: os.path.getmtime(p), reverse=True); print(paths[0] if paths else "")')
-        if [ -z "$ZIP_PATH" ]; then
-          echo "❌ 未找到报告 ZIP"
+        
+        # 等待一下，确保ZIP文件有时间生成
+        sleep 2
+        
+        # 选择本次运行生成的最新 ZIP（创建时间在运行开始之后）
+        ZIP_PATH=$(python -c "
+        import glob
+        import os
+        import sys
+        run_start = int('${{ env.RUN_START_TIME }}')
+        paths = glob.glob('reports/**/stock_reports_*.zip', recursive=True)
+        paths = [p for p in paths if os.path.isfile(p)]
+        # 只选择在运行开始后创建的ZIP文件（允许60秒误差）
+        paths = [p for p in paths if os.path.getmtime(p) >= run_start - 60]
+        if paths:
+            paths.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            print(paths[0])
+        ")
+        
+        if [ -z "$ZIP_PATH" ] || [ ! -f "$ZIP_PATH" ]; then
+          echo "❌ 未找到本次运行生成的报告 ZIP"
+          echo "检查 reports 目录:"
+          ls -la reports/*/stock_reports_*.zip 2>/dev/null || echo "未找到ZIP文件"
+          echo "运行开始时间戳: ${{ env.RUN_START_TIME }}"
+          echo "当前时间戳: $(date +%s)"
           exit 1
         fi
-        echo "✅ 使用报告ZIP: $ZIP_PATH"
+        
+        # 验证ZIP文件大小（至少应该有一些内容）
+        ZIP_SIZE=$(stat -f%z "$ZIP_PATH" 2>/dev/null || stat -c%s "$ZIP_PATH" 2>/dev/null || echo "0")
+        if [ "$ZIP_SIZE" -lt 1000 ]; then
+          echo "⚠️ ZIP文件太小 ($ZIP_SIZE 字节)，可能不完整"
+          exit 1
+        fi
+        
+        echo "✅ 使用报告ZIP: $ZIP_PATH (大小: $ZIP_SIZE 字节)"
         cp "$ZIP_PATH" final_delivery/stock_report.zip
 
     - name: 上传报告到 GitHub Artifact
-      if: success()
+      if: steps.run_analysis.outputs.PDF_COUNT > 0
       uses: actions/upload-artifact@v4
       with:
         name: stock-reports-${{ github.run_id }}
@@ -69,7 +109,7 @@ jobs:
           final_delivery/stock_report.zip
 
     - name: 发送报告到 Telegram 🚀
-      if: success()
+      if: steps.run_analysis.outputs.PDF_COUNT > 0
       uses: appleboy/telegram-action@master
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}

@@ -1431,9 +1431,18 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
             spaceAfter=6
         )
         
+        # 判断是否为纯行业指数报告
+        is_sector_only = stock_code.startswith('BK') and not any(
+            stock_data_map.get(k) is not None and not stock_data_map.get(k).empty 
+            for k in ['day', 'week', 'month', '30m', '5m', '1m']
+        )
+        
         # 封面页
         story.append(Spacer(1, 50))
-        story.append(Paragraph(f"{stock_name}技术分析报告", title_style))
+        if is_sector_only:
+            story.append(Paragraph(f"{stock_name}行业板块指数分析报告", title_style))
+        else:
+            story.append(Paragraph(f"{stock_name}技术分析报告", title_style))
         story.append(Paragraph(f"({stock_code})", subtitle_style))
         story.append(Spacer(1, 20))
         
@@ -1626,118 +1635,119 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
         
         story.append(PageBreak())
         
-        # 第三部分：个股技术分析
-        story.append(Paragraph("三、个股技术分析", section_style))
-        
-        periods = [
-            ('日线级别分析', 'day'),
-            ('周线级别分析', 'week'),
-            ('月线级别分析', 'month'),
-            ('30分钟级别分析', '30m'),
-            ('5分钟级别分析', '5m'),
-            ('1分钟级别分析', '1m')
-        ]
-        
-        for cn_name, key in periods:
-            df = stock_data_map.get(key)
+        # 第三部分：个股技术分析（如果不是纯行业指数报告）
+        if not is_sector_only:
+            story.append(Paragraph("三、个股技术分析", section_style))
             
-            story.append(Paragraph(cn_name, subtitle_style))
-            story.append(Spacer(1, 10))
+            periods = [
+                ('日线级别分析', 'day'),
+                ('周线级别分析', 'week'),
+                ('月线级别分析', 'month'),
+                ('30分钟级别分析', '30m'),
+                ('5分钟级别分析', '5m'),
+                ('1分钟级别分析', '1m')
+            ]
             
-            if df is not None and not df.empty and len(df) >= 3:
-                try:
-                    last = df.iloc[-1]
-                    
-                    basic_data = [
-                        ['指标', '数值', '状态'],
-                        ['收盘价', f"{last['Close']:.2f}", 
-                         '上涨' if 'MA5' in last and last['Close'] > last['MA5'] else '下跌'],
-                        ['MA5', f"{last['MA5']:.2f}" if 'MA5' in last else 'N/A', ''],
-                        ['MA10', f"{last['MA10']:.2f}" if 'MA10' in last else 'N/A', ''],
-                        ['MA20', f"{last['MA20']:.2f}" if 'MA20' in last else 'N/A', '']
-                    ]
-                    
-                    tech_data = []
-                    if 'RSI' in last:
-                        rsi_status = '超买区' if last['RSI'] > 70 else ('超卖区' if last['RSI'] < 30 else '正常区间')
-                        tech_data.append(['RSI(14)', f"{last['RSI']:.1f}", rsi_status])
-                    
-                    if 'MACD' in last:
-                        macd_status = '多头' if last['MACD'] > 0 else '空头'
-                        tech_data.append(['MACD', f"{last['MACD']:.3f}", macd_status])
-                    
-                    if 'K' in last:
-                        k_status = '超买' if last['K'] > 80 else ('超卖' if last['K'] < 20 else '正常')
-                        tech_data.append(['KDJ-K', f"{last['K']:.1f}", k_status])
-                    
-                    if 'D' in last:
-                        tech_data.append(['KDJ-D', f"{last['D']:.1f}", ''])
-                    
-                    if 'J' in last:
-                        tech_data.append(['KDJ-J', f"{last['J']:.1f}", ''])
-                    
-                    if 'WR' in last:
-                        wr_status = '超买区' if last['WR'] < 20 else ('超卖区' if last['WR'] > 80 else '正常区间')
-                        tech_data.append(['威廉指标', f"{last['WR']:.1f}", wr_status])
-                    
-                    if 'OBV' in last:
-                        tech_data.append(['OBV', f"{last['OBV']:.0f}", '能量潮指标'])
-                    
-                    # 如果tech_data不为空，添加表头
-                    if tech_data:
-                        tech_data.insert(0, ['技术指标', '数值', '状态描述'])
-                    
-                    volume_data = [
-                        ['成交量指标', '数值', '说明']
-                    ]
-                    
-                    if 'Volume' in last:
-                        volume_data.append(['成交量', f"{last['Volume']:.0f}", ''])
-                    
-                    if 'Volume_Ratio' in last:
-                        vr_status = '放量' if last['Volume_Ratio'] > 1.5 else ('缩量' if last['Volume_Ratio'] < 0.8 else '正常')
-                        volume_data.append(['量比', f"{last['Volume_Ratio']:.2f}", vr_status])
-                    
-                    if 'Amplitude' in last:
-                        volume_data.append(['振幅', f"{last['Amplitude']:.2f}%", '波动性指标'])
-                    
-                    table1 = Table(basic_data, colWidths=[80, 80, 80])
-                    table1.setStyle(TableStyle([
-                        ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
-                        ('FONTSIZE', (0,0), (-1,-1), 9),
-                        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                    ]))
-                    story.append(table1)
-                    story.append(Spacer(1, 10))
-                    
-                    if tech_data:
-                        table2 = Table(tech_data, colWidths=[80, 80, 100])
-                        table2.setStyle(TableStyle([
+            for cn_name, key in periods:
+                df = stock_data_map.get(key)
+                
+                story.append(Paragraph(cn_name, subtitle_style))
+                story.append(Spacer(1, 10))
+                
+                if df is not None and not df.empty and len(df) >= 3:
+                    try:
+                        last = df.iloc[-1]
+                        
+                        basic_data = [
+                            ['指标', '数值', '状态'],
+                            ['收盘价', f"{last['Close']:.2f}", 
+                             '上涨' if 'MA5' in last and last['Close'] > last['MA5'] else '下跌'],
+                            ['MA5', f"{last['MA5']:.2f}" if 'MA5' in last else 'N/A', ''],
+                            ['MA10', f"{last['MA10']:.2f}" if 'MA10' in last else 'N/A', ''],
+                            ['MA20', f"{last['MA20']:.2f}" if 'MA20' in last else 'N/A', '']
+                        ]
+                        
+                        tech_data = []
+                        if 'RSI' in last:
+                            rsi_status = '超买区' if last['RSI'] > 70 else ('超卖区' if last['RSI'] < 30 else '正常区间')
+                            tech_data.append(['RSI(14)', f"{last['RSI']:.1f}", rsi_status])
+                        
+                        if 'MACD' in last:
+                            macd_status = '多头' if last['MACD'] > 0 else '空头'
+                            tech_data.append(['MACD', f"{last['MACD']:.3f}", macd_status])
+                        
+                        if 'K' in last:
+                            k_status = '超买' if last['K'] > 80 else ('超卖' if last['K'] < 20 else '正常')
+                            tech_data.append(['KDJ-K', f"{last['K']:.1f}", k_status])
+                        
+                        if 'D' in last:
+                            tech_data.append(['KDJ-D', f"{last['D']:.1f}", ''])
+                        
+                        if 'J' in last:
+                            tech_data.append(['KDJ-J', f"{last['J']:.1f}", ''])
+                        
+                        if 'WR' in last:
+                            wr_status = '超买区' if last['WR'] < 20 else ('超卖区' if last['WR'] > 80 else '正常区间')
+                            tech_data.append(['威廉指标', f"{last['WR']:.1f}", wr_status])
+                        
+                        if 'OBV' in last:
+                            tech_data.append(['OBV', f"{last['OBV']:.0f}", '能量潮指标'])
+                        
+                        # 如果tech_data不为空，添加表头
+                        if tech_data:
+                            tech_data.insert(0, ['技术指标', '数值', '状态描述'])
+                        
+                        volume_data = [
+                            ['成交量指标', '数值', '说明']
+                        ]
+                        
+                        if 'Volume' in last:
+                            volume_data.append(['成交量', f"{last['Volume']:.0f}", ''])
+                        
+                        if 'Volume_Ratio' in last:
+                            vr_status = '放量' if last['Volume_Ratio'] > 1.5 else ('缩量' if last['Volume_Ratio'] < 0.8 else '正常')
+                            volume_data.append(['量比', f"{last['Volume_Ratio']:.2f}", vr_status])
+                        
+                        if 'Amplitude' in last:
+                            volume_data.append(['振幅', f"{last['Amplitude']:.2f}%", '波动性指标'])
+                        
+                        table1 = Table(basic_data, colWidths=[80, 80, 80])
+                        table1.setStyle(TableStyle([
                             ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
                             ('FONTSIZE', (0,0), (-1,-1), 9),
                             ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                            ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
+                            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
                             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                         ]))
-                        story.append(table2)
+                        story.append(table1)
                         story.append(Spacer(1, 10))
-                    
-                    if len(volume_data) > 1:
-                        table3 = Table(volume_data, colWidths=[80, 80, 100])
-                        table3.setStyle(TableStyle([
-                            ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
-                            ('FONTSIZE', (0,0), (-1,-1), 9),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                            ('BACKGROUND', (0,0), (-1,0), colors.lightgreen),
-                            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                        ]))
-                        story.append(table3)
-                        story.append(Spacer(1, 10))
-                    
-                except Exception as e:
-                    story.append(Paragraph("数据计算中...", normal_style))
+                        
+                        if tech_data:
+                            table2 = Table(tech_data, colWidths=[80, 80, 100])
+                            table2.setStyle(TableStyle([
+                                ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
+                                ('FONTSIZE', (0,0), (-1,-1), 9),
+                                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                                ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
+                                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                            ]))
+                            story.append(table2)
+                            story.append(Spacer(1, 10))
+                        
+                        if len(volume_data) > 1:
+                            table3 = Table(volume_data, colWidths=[80, 80, 100])
+                            table3.setStyle(TableStyle([
+                                ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
+                                ('FONTSIZE', (0,0), (-1,-1), 9),
+                                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                                ('BACKGROUND', (0,0), (-1,0), colors.lightgreen),
+                                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                            ]))
+                            story.append(table3)
+                            story.append(Spacer(1, 10))
+                        
+                    except Exception as e:
+                        story.append(Paragraph("数据计算中...", normal_style))
                 
                 # 添加图表
                 img_path = os.path.join(temp_dir, f"{key}.png")
@@ -1820,11 +1830,116 @@ def process_multiple_stocks(stock_codes_input, output_folder, sector_input=None)
             print("⚠️  跳过空代码")
             continue
         
+        # 检查是否为行业名称（误输入）
+        sector_map = load_sector_index_map()
+        name_to_code = sector_map.get('name_to_code', {})
+        code_to_name = sector_map.get('code_to_name', {})
+        
+        # 检查是否包含点号分隔的多个行业名称（如"航空航天.互联网服务"）
+        if '.' in code_input or '，' in code_input or ',' in code_input:
+            parts = re.split(r'[.，,]', code_input)
+            matched_parts = []
+            for part in parts:
+                part = part.strip()
+                if not part:
+                    continue
+                if part in name_to_code:
+                    matched_parts.append(part)
+                else:
+                    # 模糊匹配：检查部分是否在行业名称中，或行业名称在部分中
+                    matched = False
+                    for sector_name in name_to_code.keys():
+                        if part in sector_name or sector_name in part:
+                            matched_parts.append(sector_name)
+                            matched = True
+                            break
+                    
+                    # 如果还没匹配到，尝试更宽松的匹配（包含关键词）
+                    if not matched:
+                        # 提取关键词（2-4个字符的子串）
+                        keywords = []
+                        for i in range(len(part)):
+                            for j in range(i+2, min(i+5, len(part)+1)):
+                                keywords.append(part[i:j])
+                        
+                        for sector_name in name_to_code.keys():
+                            # 检查是否有共同的关键词
+                            if any(keyword in sector_name for keyword in keywords if len(keyword) >= 2):
+                                matched_parts.append(sector_name)
+                                matched = True
+                                break
+                    
+                    # 如果仍然没匹配到，但包含中文字符且不像股票代码，也认为是可能的行业名称
+                    if not matched and re.search(r'[\u4e00-\u9fa5]', part) and len(part) >= 2:
+                        # 检查是否像股票代码
+                        is_likely_code = re.match(r'^\d{4,6}$', part) or part.startswith(('BK', 'sh', 'sz', 'HK'))
+                        if not is_likely_code:
+                            matched_parts.append(part)
+            
+            # 如果至少匹配到一个行业，就认为是行业名称组合
+            if matched_parts:
+                print(f"⚠️  检测到多个行业名称组合: {code_input}")
+                print(f"   识别到的行业: {', '.join(matched_parts)}")
+                print(f"   提示: 行业报告需要分别生成，请使用 --sector 参数")
+                print(f"   示例: python3 github_stock_bot.py --mode manual --stocks \"688630\" --sector \"{matched_parts[0]}\"")
+                failed_reports.append((code_input, code_input, f"多个行业名称组合: {', '.join(matched_parts)}"))
+                continue
+        
+        # 完全匹配检查
+        if code_input in name_to_code:
+            print(f"⚠️  检测到行业名称 '{code_input}'，这不是股票代码")
+            print(f"   提示: 如需生成行业报告，请使用 --sector 参数")
+            print(f"   示例: python3 github_stock_bot.py --mode manual --stocks \"688630\" --sector \"{code_input}\"")
+            failed_reports.append((code_input, code_input, "输入的是行业名称而非股票代码"))
+            continue
+        
+        # 如果输入看起来不像股票代码（不是数字，不是BK开头，不是sh/sz/HK开头）
+        is_likely_stock_code = (
+            re.match(r'^\d{4,6}$', code_input) or 
+            code_input.startswith('BK') or 
+            code_input.startswith(('sh', 'sz', 'HK'))
+        )
+        
+        # 如果包含中文字符且不像股票代码，进行模糊匹配
+        if not is_likely_stock_code and re.search(r'[\u4e00-\u9fa5]', code_input):
+            matched_sectors = []
+            for sector_name in name_to_code.keys():
+                # 检查输入是否包含行业名称的关键部分，或行业名称包含输入
+                if (len(code_input) >= 2 and 
+                    (code_input in sector_name or sector_name in code_input or 
+                     any(word in sector_name for word in code_input if len(word) >= 2))):
+                    matched_sectors.append(sector_name)
+            
+            if matched_sectors:
+                print(f"⚠️  输入 '{code_input}' 看起来不像股票代码")
+                print(f"   检测到可能的行业名称: {', '.join(matched_sectors[:3])}")
+                print(f"   提示: 如需生成行业报告，请使用 --sector 参数")
+                print(f"   示例: python3 github_stock_bot.py --mode manual --stocks \"688630\" --sector \"{matched_sectors[0]}\"")
+                failed_reports.append((code_input, code_input, f"可能是行业名称而非股票代码: {matched_sectors[0]}"))
+                continue
+        
         stock_code = normalize_code(code_input)
         print(f"📈 分析股票: {stock_code}")
         
         stock_name = get_name(stock_code)
-        print(f"📛 股票名称: {stock_name}")
+        
+        # 如果获取股票名称失败或名称与输入相同，可能是行业名称
+        if not stock_name or stock_name == code_input:
+            # 检查是否是行业名称的模糊匹配
+            matched_sectors = []
+            for sector_name, sector_code in name_to_code.items():
+                if code_input in sector_name or sector_name in code_input:
+                    matched_sectors.append(sector_name)
+            
+            if matched_sectors:
+                print(f"⚠️  无法获取股票数据，检测到可能的行业名称: {', '.join(matched_sectors[:3])}")
+                print(f"   提示: 如需生成行业报告，请使用 --sector 参数")
+                failed_reports.append((code_input, code_input, f"可能是行业名称而非股票代码: {matched_sectors[0]}"))
+                continue
+            else:
+                print(f"📛 股票名称: {stock_name or '未知'}")
+        else:
+            print(f"📛 股票名称: {stock_name}")
         
         timestamp = datetime.now().strftime('%H%M%S')
         temp_dir = os.path.join(output_folder, f"temp_{stock_code}_{timestamp}")

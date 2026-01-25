@@ -2,9 +2,8 @@
 测试交易时间判断函数
 """
 
-import pytest
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pandas as pd
 from src.utils.trading_hours import is_china_stock_market_open, is_hk_stock_market_open
 

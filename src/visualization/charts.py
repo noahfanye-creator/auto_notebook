@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import matplotlib.dates as mdates  # noqa: E402
 import matplotlib.font_manager as fm  # noqa: E402
 
-from src.data.fetchers import normalize_beijing_time, is_intraday_data
+from src.data.fetchers import normalize_beijing_time, is_intraday_data  # noqa: E402
 
 
 def create_candle_chart(df: Optional[pd.DataFrame], title: str, filename: str, max_points: int = 60) -> bool:

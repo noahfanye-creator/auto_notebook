@@ -2,7 +2,6 @@
 测试代码标准化函数
 """
 
-import pytest
 from src.utils.code_normalizer import normalize_code, is_hk_stock, normalize_hk_code, parse_stock_list
 
 

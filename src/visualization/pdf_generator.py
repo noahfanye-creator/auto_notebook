@@ -267,7 +267,10 @@ def create_pdf_with_market_analysis(
                     # 创建包含名称、点位、涨跌幅的文本块
                     # 使用HTML格式组合成一个Paragraph
                     change_color = "red" if change >= 0 else "green"
-                    text_content = f"<b>{name_text}</b><br/><font size=9>{price_text}</font><br/><font size=8 color={change_color}>{change_text}</font>"
+                    text_content = (
+                        f"<b>{name_text}</b><br/><font size=9>{price_text}</font>"
+                        f"<br/><font size=8 color={change_color}>{change_text}</font>"
+                    )
 
                     name_style = ParagraphStyle(
                         name="IndexName",

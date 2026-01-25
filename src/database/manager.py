@@ -296,7 +296,7 @@ class StockDatabase:
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO meta_info
-                (code, stock_name, market_type, last_update_date, last_update_scale, 
+                (code, stock_name, market_type, last_update_date, last_update_scale,
                  data_count, last_success_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,

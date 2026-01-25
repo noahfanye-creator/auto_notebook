@@ -1431,15 +1431,12 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
             spaceAfter=6
         )
         
-        # 判断是否为纯行业指数报告
-        is_sector_only = stock_code.startswith('BK') and not any(
-            stock_data_map.get(k) is not None and not stock_data_map.get(k).empty 
-            for k in ['day', 'week', 'month', '30m', '5m', '1m']
-        )
+        # 判断是否为行业指数报告（BK开头）
+        is_sector_report = stock_code.startswith('BK')
         
         # 封面页
         story.append(Spacer(1, 50))
-        if is_sector_only:
+        if is_sector_report:
             story.append(Paragraph(f"{stock_name}行业板块指数分析报告", title_style))
         else:
             story.append(Paragraph(f"{stock_name}技术分析报告", title_style))
@@ -1635,8 +1632,11 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
         
         story.append(PageBreak())
         
-        # 第三部分：个股技术分析（如果不是纯行业指数报告）
-        if not is_sector_only:
+        # 第三部分：技术分析（个股或行业指数）
+        if is_sector_report:
+            story.append(Paragraph("三、行业指数技术分析", section_style))
+        else:
+            story.append(Paragraph("三、个股技术分析", section_style))
             story.append(Paragraph("三、个股技术分析", section_style))
             
             periods = [
@@ -1830,10 +1830,19 @@ def process_multiple_stocks(stock_codes_input, output_folder, sector_input=None)
             print("⚠️  跳过空代码")
             continue
         
-        # 检查是否为行业名称（误输入）
+        # 检查是否为行业代码或行业名称（误输入）
         sector_map = load_sector_index_map()
         name_to_code = sector_map.get('name_to_code', {})
         code_to_name = sector_map.get('code_to_name', {})
+        
+        # 首先检查是否为行业代码（BK开头）
+        if code_input.startswith('BK') and code_input in code_to_name:
+            sector_name = code_to_name[code_input]
+            print(f"⚠️  检测到行业代码 '{code_input}' ({sector_name})，这不是股票代码")
+            print(f"   提示: 如需生成行业报告，请使用 --sector 参数")
+            print(f"   示例: python3 github_stock_bot.py --mode manual --stocks \"688630\" --sector \"{code_input}\"")
+            failed_reports.append((code_input, code_input, f"输入的是行业代码而非股票代码: {sector_name}"))
+            continue
         
         # 检查是否包含点号分隔的多个行业名称（如"航空航天.互联网服务"）
         if '.' in code_input or '，' in code_input or ',' in code_input:

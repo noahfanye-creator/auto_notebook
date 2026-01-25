@@ -53,8 +53,15 @@ jobs:
         # 使用 manual 模式，这样脚本只管生成 PDF，不会报错也不会重复发消息
         python github_stock_bot.py --mode manual --stocks "$STOCKS"
         
-        # 检查是否有PDF文件生成
-        PDF_COUNT=$(find reports -name "*.pdf" -type f -newermt "@$RUN_START_TIME" | wc -l)
+        # 检查是否有PDF文件生成（使用时间戳比较）
+        PDF_COUNT=$(python3 -c "
+        import os
+        import glob
+        run_start = int('$RUN_START_TIME')
+        pdfs = glob.glob('reports/**/*.pdf', recursive=True)
+        pdfs = [p for p in pdfs if os.path.isfile(p) and os.path.getmtime(p) >= run_start - 60]
+        print(len(pdfs))
+        ")
         echo "本次运行生成的PDF数量: $PDF_COUNT"
         echo "PDF_COUNT=$PDF_COUNT" >> $GITHUB_OUTPUT
     

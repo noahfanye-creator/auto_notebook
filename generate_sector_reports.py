@@ -9,6 +9,7 @@ import sys
 import json
 import argparse
 import time
+import pandas as pd
 from datetime import datetime
 
 # 添加项目路径
@@ -73,10 +74,10 @@ def generate_sector_report(sector_code, output_folder, use_dummy_stock=True):
     
     print(f"✅ 获取到 {len(sector_indices_data)} 个行业指数数据")
     
-    # 生成图表
+    # 生成行业指数图表（日线）
     print(f"\n2️⃣  生成图表...")
     charts_count = create_indices_charts(sector_indices_data, temp_dir)
-    print(f"✅ 生成 {charts_count} 个图表")
+    print(f"✅ 生成 {charts_count} 个行业指数图表")
     
     # 创建虚拟股票数据（用于兼容报告格式）
     stock_data_map = {}
@@ -85,6 +86,76 @@ def generate_sector_report(sector_code, output_folder, use_dummy_stock=True):
         first_sector = list(sector_indices_data.values())[0]
         df_day = first_sector['data'].copy()
         stock_data_map['day'] = df_day
+        
+        # 生成周线和月线数据
+        if df_day is not None and not df_day.empty:
+            from github_stock_bot import resample_kline_data, calculate_technical_indicators
+            print("  生成周线数据...")
+            df_week = resample_kline_data(df_day, 'W')
+            if df_week is not None:
+                stock_data_map['week'] = df_week
+                print(f"    ✓ 周线: {len(df_week)} 条数据")
+            
+            print("  生成月线数据...")
+            df_month = resample_kline_data(df_day, 'M')
+            if df_month is not None:
+                stock_data_map['month'] = df_month
+                print(f"    ✓ 月线: {len(df_month)} 条数据")
+        
+        # 尝试获取30分钟和5分钟数据
+        try:
+            import akshare as ak
+            print("  获取30分钟数据...")
+            try:
+                df_30m = ak.stock_board_industry_hist_min_em(symbol=sector_name, period="30")
+                if df_30m is not None and not df_30m.empty:
+                    # 标准化列名
+                    df_30m = df_30m.rename(columns={
+                        '时间': 'Date',
+                        '开盘': 'Open',
+                        '收盘': 'Close',
+                        '最高': 'High',
+                        '最低': 'Low',
+                        '成交量': 'Volume'
+                    })
+                    df_30m['Date'] = pd.to_datetime(df_30m['Date'])
+                    df_30m.set_index('Date', inplace=True)
+                    df_30m.sort_index(inplace=True)
+                    df_30m = df_30m.tail(100)  # 限制数据量
+                    df_30m = calculate_technical_indicators(df_30m)
+                    stock_data_map['30m'] = df_30m
+                    print(f"    ✓ 30分钟: {len(df_30m)} 条数据")
+                else:
+                    print("    ⚠️  30分钟数据为空")
+            except Exception as e:
+                print(f"    ⚠️  30分钟数据获取失败: {str(e)[:50]}")
+            
+            print("  获取5分钟数据...")
+            try:
+                df_5m = ak.stock_board_industry_hist_min_em(symbol=sector_name, period="5")
+                if df_5m is not None and not df_5m.empty:
+                    # 标准化列名
+                    df_5m = df_5m.rename(columns={
+                        '时间': 'Date',
+                        '开盘': 'Open',
+                        '收盘': 'Close',
+                        '最高': 'High',
+                        '最低': 'Low',
+                        '成交量': 'Volume'
+                    })
+                    df_5m['Date'] = pd.to_datetime(df_5m['Date'])
+                    df_5m.set_index('Date', inplace=True)
+                    df_5m.sort_index(inplace=True)
+                    df_5m = df_5m.tail(100)  # 限制数据量
+                    df_5m = calculate_technical_indicators(df_5m)
+                    stock_data_map['5m'] = df_5m
+                    print(f"    ✓ 5分钟: {len(df_5m)} 条数据")
+                else:
+                    print("    ⚠️  5分钟数据为空")
+            except Exception as e:
+                print(f"    ⚠️  5分钟数据获取失败: {str(e)[:50]}")
+        except Exception as e:
+            print(f"  ⚠️  分钟数据接口不可用: {str(e)[:50]}")
         
         # 创建元数据
         stock_data_map['_meta'] = {
@@ -102,6 +173,27 @@ def generate_sector_report(sector_code, output_folder, use_dummy_stock=True):
                 'volume_ma': [5, 10]
             }
         }
+        
+        # 生成行业指数的日线、周线、月线图表
+        if stock_data_map.get('day'):
+            from github_stock_bot import create_candle_chart
+            sector_charts_count = 0
+            
+            chart_configs = [
+                ('day', stock_data_map.get('day'), f"{sector_name} 日线", 60),
+                ('week', stock_data_map.get('week'), f"{sector_name} 周线", 60),
+                ('month', stock_data_map.get('month'), f"{sector_name} 月线", 60),
+                ('30m', stock_data_map.get('30m'), f"{sector_name} 30分钟", 100),
+                ('5m', stock_data_map.get('5m'), f"{sector_name} 5分钟", 100),
+            ]
+            
+            for key, df, title, max_points in chart_configs:
+                if df is not None and len(df) >= 5:
+                    img_path = os.path.join(temp_dir, f"{key}.png")
+                    if create_candle_chart(df, title, img_path, max_points=max_points):
+                        sector_charts_count += 1
+            
+            print(f"✅ 生成 {sector_charts_count} 个行业指数K线图表（日线/周线/月线）")
     
     # 生成PDF报告
     print(f"\n3️⃣  生成PDF报告...")

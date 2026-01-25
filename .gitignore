@@ -45,3 +45,6 @@ logs/
 *.pem
 *.pkcs8
 private_key*
+
+# 监控冷却状态（由 Action 写入，可选提交）
+config/signal_cooldown.json

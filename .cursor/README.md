@@ -8,9 +8,27 @@
 - `settings.json` - 项目特定的编辑器设置（可选）
 - 其他项目级配置文件
 
-## 🔄 同步说明
+## 🔄 本地同步说明
 
-此目录已配置为可通过 Git 同步，当你在另一台电脑上克隆项目时，这些设置会自动同步。
+此目录已提交到本地 Git 仓库，可以通过以下方式在本地不同电脑间同步：
+
+### 方法一：使用 Git（推荐）
+```bash
+# 在另一台电脑上
+git pull  # 拉取最新更改，包括 .cursor/ 目录
+```
+
+### 方法二：手动复制
+```bash
+# 从源电脑复制 .cursor/ 目录到目标电脑的项目目录
+cp -r /path/to/source/.cursor /path/to/target/
+```
+
+### 方法三：使用同步脚本
+```bash
+# 使用项目根目录的 sync_cursor_project.sh 脚本
+./sync_cursor_project.sh
+```
 
 ## 📝 使用建议
 

@@ -81,7 +81,7 @@ def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
                             inserted = db.save_market_index_data(code, name, 240, df_raw, validate=True)
                             if inserted > 0:
                                 print(f"    💾 已保存到数据库: {inserted} 条")
-                    except Exception as e:
+                    except Exception:
                         pass  # 数据库保存失败不影响主流程
 
                     # 计算技术指标（用于报告）
@@ -89,7 +89,7 @@ def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
                     indices_data[code] = {"name": name, "data": df, "type": "HK"}
                     print(f"    ✓ 获取成功: {len(df)} 条数据")
                 else:
-                    print(f"    ❌ 获取失败")
+                    print("    ❌ 获取失败")
             except Exception as e:
                 print(f"    ❌ 获取失败: {e}")
     else:
@@ -122,7 +122,7 @@ def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
                             inserted = db.save_market_index_data(code, name, 240, df_raw, validate=True)
                             if inserted > 0:
                                 print(f"    💾 已保存到数据库: {inserted} 条")
-                    except Exception as e:
+                    except Exception:
                         pass  # 数据库保存失败不影响主流程
 
                     # 计算技术指标（用于报告）
@@ -130,7 +130,7 @@ def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
                     indices_data[code] = {"name": name, "data": df, "type": "A"}
                     print(f"    ✓ 获取成功: {len(df)} 条数据")
                 else:
-                    print(f"    ❌ 获取失败")
+                    print("    ❌ 获取失败")
             except Exception as e:
                 print(f"    ❌ 获取失败: {e}")
 

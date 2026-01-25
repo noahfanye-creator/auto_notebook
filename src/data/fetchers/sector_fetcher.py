@@ -114,7 +114,7 @@ def get_sector_indices_data(sector_input: Optional[str] = None, count: int = 150
             sector_data[sector_code] = {"name": sector_name, "data": df, "type": "SECTOR"}
             print(f"    ✓ 获取成功: {len(df)} 条数据")
         else:
-            print(f"    ❌ 数据为空")
+            print("    ❌ 数据为空")
     except Exception as e:
         print(f"    ❌ 获取失败: {e}")
         import traceback

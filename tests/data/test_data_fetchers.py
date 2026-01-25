@@ -2,11 +2,9 @@
 测试数据获取函数（使用mock）
 """
 
-import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock
 from src.data.fetchers import get_name, fetch_kline_data, normalize_beijing_time, filter_trading_hours
-from src.utils.code_normalizer import normalize_code
 
 
 class TestDataFetchers:

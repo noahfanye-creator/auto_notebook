@@ -5,12 +5,11 @@ PDF报告生成模块
 
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
-import pandas as pd
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, PageBreak, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from src.utils.font_setup import setup_fonts
@@ -21,9 +20,8 @@ logger = get_logger(__name__)
 
 # 获取字体名称
 FONT_NAME = setup_fonts()
-from src.data.fetchers import format_beijing_time
-from src.analysis import get_market_summary_analysis, get_market_sentiment_analysis
-from .report_templates import _format_range, _get_trend_status, _build_report_summary, _build_parameters_table
+from src.data.fetchers import format_beijing_time  # noqa: E402
+from .report_templates import _get_trend_status, _build_report_summary, _build_parameters_table  # noqa: E402
 
 
 def create_pdf_with_market_analysis(
@@ -154,8 +152,6 @@ def create_pdf_with_market_analysis(
         # 第一部分：市场指数综合分析（表格形式）- 第二页开始
         story.append(Paragraph("一、市场指数综合分析", section_style))
         story.append(Spacer(1, 8))
-
-        market_label = "港股" if stock_code.startswith("HK.") else "A股"
 
         # 构建市场指数综合分析表格
         if market_indices:
@@ -360,7 +356,7 @@ def create_pdf_with_market_analysis(
 
                         img = Image(img_path, width=img_width * ratio, height=img_height * ratio)
                         sector_charts.append([Paragraph(info["name"], normal_style), img])
-                    except:
+                    except Exception:
                         continue
 
             if sector_charts:
@@ -586,7 +582,7 @@ def create_pdf_with_market_analysis(
                         story.append(table_combined)
                         story.append(Spacer(1, 8))  # 间距从10减小到8
 
-                    except Exception as e:
+                    except Exception:
                         story.append(Paragraph("数据计算中...", normal_style))
 
                 # 添加图表
@@ -637,7 +633,7 @@ def create_pdf_with_market_analysis(
                                 )
                             )
                         story.append(Spacer(1, 10))
-                    except:
+                    except Exception:
                         story.append(Paragraph("[图表加载失败]", normal_style))
                 else:
                     story.append(Paragraph("[图表生成失败或无数据]", normal_style))

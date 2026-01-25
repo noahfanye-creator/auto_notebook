@@ -2,7 +2,6 @@
 测试并发处理模块
 """
 
-import pytest
 import time
 from src.utils.parallel import parallel_process, batch_process, parallel_map, ThreadSafeCounter
 

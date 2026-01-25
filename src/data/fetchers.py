@@ -5,7 +5,6 @@
 
 import json
 import os
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 import pandas as pd
@@ -43,7 +42,10 @@ def get_name(symbol: str) -> str:
 def fetch_kline_data(symbol: str, scale: int, datalen: int = 100) -> Optional[pd.DataFrame]:
     """获取K线数据"""
     try:
-        url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={symbol}&scale={scale}&ma=no&datalen={datalen}"
+        url = (
+            f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+            f"CN_MarketData.getKLineData?symbol={symbol}&scale={scale}&ma=no&datalen={datalen}"
+        )
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
         resp = requests.get(url, headers=headers, timeout=20)
 

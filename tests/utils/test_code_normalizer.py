@@ -30,12 +30,12 @@ class TestCodeNormalizer:
 
     def test_is_hk_stock(self):
         """测试港股识别"""
-        assert is_hk_stock("00700") == True
-        assert is_hk_stock("700") == False  # 3位数字不是港股
-        assert is_hk_stock("00700.HK") == True
-        assert is_hk_stock("HK.00700") == True
-        assert is_hk_stock("600460") == False
-        assert is_hk_stock("300474") == False
+        assert is_hk_stock("00700") is True
+        assert is_hk_stock("700") is False  # 3位数字不是港股
+        assert is_hk_stock("00700.HK") is True
+        assert is_hk_stock("HK.00700") is True
+        assert is_hk_stock("600460") is False
+        assert is_hk_stock("300474") is False
 
     def test_parse_stock_list(self):
         """测试股票列表解析"""

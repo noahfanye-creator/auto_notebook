@@ -88,6 +88,37 @@ class StockDatabase:
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_kline_date ON kline_by_scale(date)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_index_code_scale ON market_indices(index_code, scale)")
 
+        # 数据库迁移：如果表已存在但缺少新字段，则添加（向后兼容）
+        try:
+            # 检查 kline_by_scale 表
+            cursor = self.conn.execute("PRAGMA table_info(kline_by_scale)")
+            existing_columns = [row[1] for row in cursor.fetchall()]
+
+            if "created_at" not in existing_columns:
+                logger.info("升级数据库表：添加 created_at 字段")
+                self.conn.execute("ALTER TABLE kline_by_scale ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP")
+
+            if "updated_at" not in existing_columns:
+                logger.info("升级数据库表：添加 updated_at 字段")
+                self.conn.execute("ALTER TABLE kline_by_scale ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+
+            # 检查 market_indices 表
+            cursor = self.conn.execute("PRAGMA table_info(market_indices)")
+            existing_columns = [row[1] for row in cursor.fetchall()]
+
+            if "created_at" not in existing_columns:
+                logger.info("升级数据库表：为 market_indices 添加 created_at 字段")
+                self.conn.execute("ALTER TABLE market_indices ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP")
+
+            if "updated_at" not in existing_columns:
+                logger.info("升级数据库表：为 market_indices 添加 updated_at 字段")
+                self.conn.execute("ALTER TABLE market_indices ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+
+            self.conn.commit()
+        except Exception as e:
+            logger.warning("数据库迁移检查失败: %s", e)
+            self.conn.rollback()
+
         self.conn.commit()
         logger.info("数据库表初始化完成")
 
@@ -186,26 +217,52 @@ class StockDatabase:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             inserted_count = 0
 
+            # 检查表是否有 updated_at 字段（兼容旧表结构）
+            cursor = self.conn.execute("PRAGMA table_info(kline_by_scale)")
+            columns = [row[1] for row in cursor.fetchall()]
+            has_updated_at = "updated_at" in columns
+
             for _, row in subset.iterrows():
                 try:
-                    self.conn.execute(
-                        """
-                        INSERT OR REPLACE INTO kline_by_scale 
-                        (code, scale, date, open, high, low, close, volume, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            str(row["code"]),
-                            int(row["scale"]),
-                            str(row["date"]),
-                            float(row["open"]),
-                            float(row["high"]),
-                            float(row["low"]),
-                            float(row["close"]),
-                            float(row["volume"]),
-                            now,
-                        ),
-                    )
+                    if has_updated_at:
+                        # 新表结构：包含 updated_at
+                        self.conn.execute(
+                            """
+                            INSERT OR REPLACE INTO kline_by_scale
+                            (code, scale, date, open, high, low, close, volume, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                str(row["code"]),
+                                int(row["scale"]),
+                                str(row["date"]),
+                                float(row["open"]),
+                                float(row["high"]),
+                                float(row["low"]),
+                                float(row["close"]),
+                                float(row["volume"]),
+                                now,
+                            ),
+                        )
+                    else:
+                        # 旧表结构：不包含 updated_at
+                        self.conn.execute(
+                            """
+                            INSERT OR REPLACE INTO kline_by_scale
+                            (code, scale, date, open, high, low, close, volume)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                str(row["code"]),
+                                int(row["scale"]),
+                                str(row["date"]),
+                                float(row["open"]),
+                                float(row["high"]),
+                                float(row["low"]),
+                                float(row["close"]),
+                                float(row["volume"]),
+                            ),
+                        )
                     inserted_count += 1
                 except Exception as e:
                     logger.warning("插入单条记录失败: %s", e)
@@ -238,7 +295,7 @@ class StockDatabase:
 
             self.conn.execute(
                 """
-                INSERT OR REPLACE INTO meta_info 
+                INSERT OR REPLACE INTO meta_info
                 (code, stock_name, market_type, last_update_date, last_update_scale, 
                  data_count, last_success_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -331,27 +388,54 @@ class StockDatabase:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             inserted_count = 0
 
+            # 检查表是否有 updated_at 字段（兼容旧表结构）
+            cursor = self.conn.execute("PRAGMA table_info(market_indices)")
+            columns = [row[1] for row in cursor.fetchall()]
+            has_updated_at = "updated_at" in columns
+
             for _, row in subset.iterrows():
                 try:
-                    self.conn.execute(
-                        """
-                        INSERT OR REPLACE INTO market_indices 
-                        (index_code, index_name, scale, date, open, high, low, close, volume, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            index_code,
-                            index_name,
-                            scale,
-                            str(row["date"]),
-                            float(row["open"]),
-                            float(row["high"]),
-                            float(row["low"]),
-                            float(row["close"]),
-                            float(row["volume"]),
-                            now,
-                        ),
-                    )
+                    if has_updated_at:
+                        # 新表结构：包含 updated_at
+                        self.conn.execute(
+                            """
+                            INSERT OR REPLACE INTO market_indices
+                            (index_code, index_name, scale, date, open, high, low, close, volume, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                index_code,
+                                index_name,
+                                scale,
+                                str(row["date"]),
+                                float(row["open"]),
+                                float(row["high"]),
+                                float(row["low"]),
+                                float(row["close"]),
+                                float(row["volume"]),
+                                now,
+                            ),
+                        )
+                    else:
+                        # 旧表结构：不包含 updated_at
+                        self.conn.execute(
+                            """
+                            INSERT OR REPLACE INTO market_indices
+                            (index_code, index_name, scale, date, open, high, low, close, volume)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                index_code,
+                                index_name,
+                                scale,
+                                str(row["date"]),
+                                float(row["open"]),
+                                float(row["high"]),
+                                float(row["low"]),
+                                float(row["close"]),
+                                float(row["volume"]),
+                            ),
+                        )
                     inserted_count += 1
                 except Exception as e:
                     logger.warning("插入指数数据失败: %s", e)

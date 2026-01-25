@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import matplotlib.font_manager as fm
+matplotlib.use("Agg")  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.dates as mdates  # noqa: E402
+import matplotlib.font_manager as fm  # noqa: E402
 
 from src.data.fetchers import normalize_beijing_time, is_intraday_data
 
@@ -209,7 +209,7 @@ def create_candle_chart(df: Optional[pd.DataFrame], title: str, filename: str, m
             print(f"   图表生成成功: {os.path.basename(filename)}")
             return True
         else:
-            print(f"   图表生成失败")
+            print("   图表生成失败")
             return False
 
     except Exception as e:

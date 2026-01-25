@@ -3,8 +3,7 @@
 技术分析模块
 """
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 
 class TechnicalAnalyzer:

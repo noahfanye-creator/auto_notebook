@@ -14,7 +14,7 @@ except Exception:
     ak = None
 
 # 导入工具函数模块
-from src.utils.code_normalizer import normalize_code, is_hk_stock, parse_stock_list
+from src.utils.code_normalizer import is_hk_stock, parse_stock_list
 from src.utils.trading_hours import is_china_stock_market_open, is_hk_stock_market_open
 
 # 导入报告生成模块
@@ -150,7 +150,7 @@ def main(sector_input=None):
     zip_file = create_zip_archive(output_dir)
 
     if zip_file:
-        logger.info(f"\n🎉 所有任务完成!")
+        logger.info("\n🎉 所有任务完成!")
         logger.info(f"📁 报告文件夹: {output_dir}")
         logger.info(f"📦 ZIP压缩包: {zip_file}")
     else:

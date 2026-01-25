@@ -5,7 +5,6 @@ A股多数据源模块
 
 import re
 import json
-import traceback
 from typing import Optional
 from datetime import datetime, timedelta
 
@@ -100,7 +99,7 @@ class AShareDataSources:
 
             try:
                 data = json.loads(text)
-            except:
+            except Exception:
                 return None
 
             if "data" not in data or not data["data"]:
@@ -126,7 +125,7 @@ class AShareDataSources:
                                 "Volume": float(parts[5]),
                             }
                         )
-                    except:
+                    except Exception:
                         continue
 
             if not result:
@@ -193,7 +192,7 @@ class AShareDataSources:
 
             try:
                 data = response.json()
-            except:
+            except Exception:
                 return None
 
             # 解析腾讯财经数据格式
@@ -218,7 +217,7 @@ class AShareDataSources:
                                 "Volume": float(item[5]),
                             }
                         )
-                    except:
+                    except Exception:
                         continue
 
             if not result:
@@ -260,7 +259,7 @@ class AShareDataSources:
                 return None
 
             # AKShare代码格式：600460 (上海) 或 000001 (深圳)
-            ak_code = f"{clean_code}.{'SH' if market == 'sh' else 'SZ'}"
+            # ak_code = f"{clean_code}.{'SH' if market == 'sh' else 'SZ'}"  # 未使用，保留以备将来使用
 
             # 周期映射
             period_map = {

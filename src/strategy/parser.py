@@ -76,7 +76,7 @@ class StrategyParser:
             with open(config_path, "r", encoding="utf-8") as f:
                 try:
                     existing_rules = yaml.safe_load(f) or []
-                except:
+                except Exception:
                     existing_rules = []
 
         # 合并逻辑：简单追加，去重

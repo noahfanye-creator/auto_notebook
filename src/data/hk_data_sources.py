@@ -4,7 +4,6 @@
 """
 
 import logging
-import re
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -84,7 +83,7 @@ class HKDataSources:
         # 2. 尝试东方财富
         try:
             em_code = f"116.{symbol}"
-            url = f"https://push2.eastmoney.com/api/qt/stock/get"
+            url = "https://push2.eastmoney.com/api/qt/stock/get"
             params = {"secid": em_code, "fields": "f12,f13,f14"}
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -260,7 +259,7 @@ class HKDataSources:
                                 "Volume": float(parts[5]),
                             }
                         )
-                    except:
+                    except Exception:
                         continue
 
             if not data_list:

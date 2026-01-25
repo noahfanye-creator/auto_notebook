@@ -3,7 +3,7 @@
 提供市场综合分析和情绪分析功能
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 
 def get_market_summary_analysis(indices_data: Dict[str, Any], market_label: str = "A股") -> str:
@@ -106,12 +106,12 @@ def get_market_sentiment_analysis(indices_data: Dict[str, Any], market_label: st
     total = up_count + down_count
     if total > 0:
         up_ratio = (up_count / total) * 100
-        analysis += f"市场宽度指标:\n"
+        analysis += "市场宽度指标:\n"
         analysis += f"  上涨指数: {up_count}个 ({up_ratio:.1f}%)\n"
         analysis += f"  下跌指数: {down_count}个 ({100-up_ratio:.1f}%)\n\n"
 
     if overbought_count > 0 or oversold_count > 0:
-        analysis += f"情绪极值:\n"
+        analysis += "情绪极值:\n"
         analysis += f"  超买状态: {overbought_count}个指数\n"
         analysis += f"  超卖状态: {oversold_count}个指数\n\n"
 
@@ -125,7 +125,7 @@ def get_market_sentiment_analysis(indices_data: Dict[str, Any], market_label: st
 
     if volatility_data:
         volatility_data.sort(key=lambda x: x[1], reverse=True)
-        analysis += f"波动性排名 (5日平均振幅):\n"
+        analysis += "波动性排名 (5日平均振幅):\n"
         for name, vol in volatility_data[:3]:
             analysis += f"  {name}: {vol:.2f}%\n"
 

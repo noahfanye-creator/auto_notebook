@@ -27,7 +27,7 @@ from src.analysis import calculate_technical_indicators, resample_kline_data
 from src.visualization import create_candle_chart, create_indices_charts, create_pdf_with_market_analysis
 from src.config import Config
 from src.utils.logger import get_logger
-from src.utils.parallel import parallel_process, batch_process
+from src.utils.parallel import batch_process
 from src.utils.exceptions import (
     DataFetchError,
     IndicatorCalculationError,
@@ -55,7 +55,7 @@ def _process_single_stock(
         Tuple[stock_code, stock_name, pdf_path, error]: 处理结果
     """
     try:
-        logger.info(f"\n" + "=" * 70)
+        logger.info("\n" + "=" * 70)
         logger.info(f"第 {index}/{total} 个股票: {code_input}")
         logger.info("=" * 70)
 
@@ -181,7 +181,7 @@ def _process_single_stock(
                                     df_min = calculate_technical_indicators(df_min)
                                     stock_data_map[f"{p}m"] = df_min
                                     break
-                            except:
+                            except Exception:
                                 time.sleep(2)
             else:
                 df_day = fetch_kline_data(stock_code, 240, 150)
@@ -212,7 +212,7 @@ def _process_single_stock(
             logger.error(f"❌ 无法获取核心数据，跳过 {stock_code}")
             return (stock_code, stock_name, None, "无数据")
 
-        logger.info(f"\n3️⃣  生成图表...")
+        logger.info("\n3️⃣  生成图表...")
         create_indices_charts(indices_data, temp_dir)
 
         chart_config = config.chart_config

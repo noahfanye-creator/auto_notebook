@@ -3,14 +3,12 @@
 提供文件缓存机制，支持TTL（生存时间），避免重复数据请求
 """
 
-import os
 import pickle
 import hashlib
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Any, Dict
-import pandas as pd
 
 from src.utils.logger import get_logger
 

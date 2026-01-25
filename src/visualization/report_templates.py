@@ -5,7 +5,6 @@ PDF报告模板和辅助函数
 
 from typing import Dict, Any, Optional, List
 import pandas as pd
-from src.data.fetchers import format_beijing_time
 
 
 def _format_range(df: Optional[pd.DataFrame]) -> str:

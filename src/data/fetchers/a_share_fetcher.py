@@ -38,7 +38,10 @@ def get_name(symbol: str) -> str:
             # 新浪财经实时数据接口
             url = f"http://hq.sinajs.cn/list={symbol}"
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                ),
                 "Referer": "https://finance.sina.com.cn",
                 "Accept": "*/*",
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
@@ -62,7 +65,10 @@ def get_name(symbol: str) -> str:
         clean_code = re.sub(r"[a-zA-Z]", "", symbol)
         if clean_code:
             # 东方财富股票信息接口
-            url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={'1.' if clean_code.startswith('6') else '0.'}{clean_code}&fields=f12,f13,f14"
+            market_prefix = "1." if clean_code.startswith("6") else "0."
+            url = (
+                f"https://push2.eastmoney.com/api/qt/stock/get?" f"secid={market_prefix}{clean_code}&fields=f12,f13,f14"
+            )
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Referer": "https://quote.eastmoney.com/",
@@ -100,15 +106,18 @@ def fetch_kline_data_from_sina(symbol: str, scale: int = 240, datalen: int = 100
         # 新浪财经历史数据接口
         # 日线数据
         if scale == 240:
-            url = f"https://quotes.sina.cn/cn/api/openapi.php/CN_MarketDataService.getKLineData"
+            url = "https://quotes.sina.cn/cn/api/openapi.php/CN_MarketDataService.getKLineData"
             params = {"symbol": symbol.upper(), "scale": scale, "datalen": datalen, "ma": "no"}
         else:
             # 分钟数据
-            url = f"https://quotes.sina.cn/cn/api/openapi.php/StockV2Service.getMinLine"
+            url = "https://quotes.sina.cn/cn/api/openapi.php/StockV2Service.getMinLine"
             params = {"symbol": symbol.upper(), "scale": scale, "datalen": datalen}
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            ),
             "Referer": "https://finance.sina.com.cn",
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
@@ -156,7 +165,7 @@ def fetch_kline_data_from_sina(symbol: str, scale: int = 240, datalen: int = 100
                                 "Volume": float(item.get("volume", 0)),
                             }
                         )
-                    except:
+                    except Exception:
                         continue
         else:
             # 分钟数据格式
@@ -173,7 +182,7 @@ def fetch_kline_data_from_sina(symbol: str, scale: int = 240, datalen: int = 100
                                 "Volume": float(item.get("v", 0)),
                             }
                         )
-                    except:
+                    except Exception:
                         continue
 
         if not klines:

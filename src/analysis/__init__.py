@@ -16,12 +16,12 @@ from .market_analyzer import get_market_summary_analysis, get_market_sentiment_a
 
 # 缠论模块（如果存在）
 try:
-    from .chan_kline import process_include
-    from .chan_fractal import find_fractals
-    from .chan_bi import find_bi
-    from .chan_xd import find_xd
-    from .chan_zhongshu import find_zhongshu
-    from .chan_third_buy import detect_third_buy, run_chan_pipeline
+    from .chan_kline import process_include  # noqa: F401
+    from .chan_fractal import find_fractals  # noqa: F401
+    from .chan_bi import find_bi  # noqa: F401
+    from .chan_xd import find_xd  # noqa: F401
+    from .chan_zhongshu import find_zhongshu  # noqa: F401
+    from .chan_third_buy import detect_third_buy, run_chan_pipeline  # noqa: F401
 
     __all__ = [
         # 技术指标

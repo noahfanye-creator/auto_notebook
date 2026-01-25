@@ -135,7 +135,11 @@ def resample_kline_data(df: Optional[pd.DataFrame], period: str = "W") -> Option
         if period == "W":
             df_resampled = df.resample("W-FRI").apply(logic)
         elif period == "M":
-            df_resampled = df.resample("ME").apply(logic)  # 'M'已弃用，使用'ME'
+            # 尝试使用 'ME'，如果不支持则回退到 'M'
+            try:
+                df_resampled = df.resample("ME").apply(logic)
+            except (ValueError, KeyError):
+                df_resampled = df.resample("M").apply(logic)
         else:
             df_resampled = df.resample(period).apply(logic)
 

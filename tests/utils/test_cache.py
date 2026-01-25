@@ -2,11 +2,8 @@
 测试缓存模块
 """
 
-import pytest
 import pandas as pd
 import time
-import os
-from pathlib import Path
 from src.utils.cache import DataCache, get_cache
 
 

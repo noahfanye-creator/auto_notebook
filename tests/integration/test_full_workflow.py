@@ -5,10 +5,9 @@ Mock 网络与数据源，验证「解析参数 → 拉数 → 算指标 → 生
 
 import os
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from src.report.generator import process_multiple_stocks, create_zip_archive
 from src.utils.code_normalizer import parse_stock_list

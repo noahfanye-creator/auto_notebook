@@ -48,7 +48,7 @@ def get_stock_name(code: str) -> str:
             data = response.text.split('="')[1].split('"')[0]
             if data:
                 return data.split(",")[0]
-    except:
+    except Exception:
         pass
 
     return code
@@ -121,7 +121,7 @@ def fetch_stock_data(code: str, period: str = "5m", count: int = 100) -> pd.Data
                             "Volume": float(item.get("v", 0)),
                         }
                     )
-            except:
+            except Exception:
                 continue
 
         if not klines:
@@ -144,7 +144,7 @@ def fetch_stock_data(code: str, period: str = "5m", count: int = 100) -> pd.Data
 def fetch_stock_data_fallback(code: str, scale: int, count: int) -> pd.DataFrame:
     """备用数据接口"""
     try:
-        url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
+        url = "http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
         params = {"symbol": code, "scale": scale, "ma": "no", "datalen": count}
 
         response = requests.get(url, params=params, timeout=15)

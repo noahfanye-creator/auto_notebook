@@ -25,7 +25,7 @@ class TestTradingHours:
         mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
 
         result = is_china_stock_market_open()
-        assert result == True
+        assert result is True
 
     @patch("src.utils.trading_hours.ak")
     @patch("src.utils.trading_hours.datetime")
@@ -40,7 +40,7 @@ class TestTradingHours:
         mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
 
         result = is_china_stock_market_open()
-        assert result == False
+        assert result is False
 
     @patch("src.utils.trading_hours.ak")
     @patch("src.utils.trading_hours.datetime")
@@ -55,7 +55,7 @@ class TestTradingHours:
         mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
 
         result = is_hk_stock_market_open()
-        assert result == True
+        assert result is True
 
     @patch("src.utils.trading_hours.ak")
     @patch("src.utils.trading_hours.datetime")
@@ -70,4 +70,4 @@ class TestTradingHours:
         mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
 
         result = is_hk_stock_market_open()
-        assert result == False
+        assert result is False

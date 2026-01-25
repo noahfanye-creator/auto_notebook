@@ -74,7 +74,7 @@ def setup_fonts() -> str:
         pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
         font_name = "STSong-Light"
         print("✅ 使用STSong-Light CID字体")
-    except:
+    except Exception:
         print("⚠️  所有中文字体尝试失败,使用默认Helvetica")
 
     return font_name

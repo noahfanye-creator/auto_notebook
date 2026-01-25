@@ -125,7 +125,17 @@ jobs:
         fi
         
         echo "✅ 使用报告ZIP: $ZIP_PATH (大小: $ZIP_SIZE 字节)"
-        cp "$ZIP_PATH" final_delivery/stock_report.zip
+        # 提取原始文件名中的时间戳，或生成新的时间戳
+        ZIP_BASENAME=$(basename "$ZIP_PATH")
+        # 如果文件名包含时间戳，保留它；否则生成新的时间戳
+        if [[ "$ZIP_BASENAME" =~ stock_reports_([0-9]{8}_[0-9]{6})\.zip ]]; then
+          TIMESTAMP="${BASH_REMATCH[1]}"
+        else
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        fi
+        ZIP_FILENAME="stock_reports_${TIMESTAMP}.zip"
+        cp "$ZIP_PATH" "final_delivery/${ZIP_FILENAME}"
+        echo "ZIP_FILENAME=${ZIP_FILENAME}" >> $GITHUB_ENV
 
     - name: 上传报告到 GitHub Artifact
       if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0
@@ -133,7 +143,7 @@ jobs:
       with:
         name: stock-reports-${{ github.run_id }}
         path: |
-          final_delivery/stock_report.zip
+          final_delivery/stock_reports_*.zip
 
     - name: 发送报告到 Telegram 🚀
       if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0
@@ -141,5 +151,5 @@ jobs:
       with:
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        document: final_delivery/stock_report.zip
+        document: final_delivery/${{ env.ZIP_FILENAME }}
         message: "✅ Felix，机器人已完成股票分析报告（ZIP）"

@@ -14,21 +14,11 @@ except Exception:
     ak = None
 
 # 导入工具函数模块
-from src.utils.code_normalizer import (
-    normalize_code,
-    is_hk_stock,
-    parse_stock_list
-)
-from src.utils.trading_hours import (
-    is_china_stock_market_open,
-    is_hk_stock_market_open
-)
+from src.utils.code_normalizer import normalize_code, is_hk_stock, parse_stock_list
+from src.utils.trading_hours import is_china_stock_market_open, is_hk_stock_market_open
 
 # 导入报告生成模块
-from src.report import (
-    process_multiple_stocks,
-    create_zip_archive
-)
+from src.report import process_multiple_stocks, create_zip_archive
 
 # 导入配置管理模块
 from src.config import Config
@@ -42,34 +32,35 @@ logger = get_logger(__name__)
 
 # ==================== 主程序 ====================
 
+
 def main(sector_input=None):
     """主程序
-    
+
     Args:
         sector_input: 行业代码或名称（如 BK1031、光伏设备），可选
     """
-    is_manual = '--mode' in sys.argv and 'manual' in sys.argv
+    is_manual = "--mode" in sys.argv and "manual" in sys.argv
     target_stocks = config.stocks
-    
+
     # 3. 如果不是手动点，而是 GitHub Actions 自动跑，则检查交易日状态
     if not is_manual:
         has_hk = any(is_hk_stock(code) for code in target_stocks)
         has_a = any(not is_hk_stock(code) for code in target_stocks)
-        
+
         a_open = True
         hk_open = True
-        
+
         if has_a:
             logger.info("🕒 正在检查 A 股交易日...")
             a_open = is_china_stock_market_open()
         if has_hk:
             logger.info("🕒 正在检查港股交易日...")
             hk_open = is_hk_stock_market_open()
-        
+
         if not a_open and not hk_open:
             logger.info("☕ 今日为法定节假日或休市，跳过分析报告推送。")
             return
-        
+
         # 过滤休市市场的股票
         filtered = []
         skipped = []
@@ -84,26 +75,27 @@ def main(sector_input=None):
                     filtered.append(code)
                 else:
                     skipped.append(code)
-        
+
         if skipped:
             logger.info(f"☕ 跳过休市市场股票: {', '.join(skipped)}")
         target_stocks = filtered
-    
+
     # 3. 只有开盘或是手动触发，才会继续执行下面的逻辑...
     logger.info("🚀 市场已开盘或手动触发，开始分析任务...")
     logger.info("=" * 70)
     logger.info("📊 股票分析报告生成器 (增强版)")
     logger.info("数据来源: 新浪财经")
     logger.info("=" * 70)
-    
+
     try:
         import matplotlib
+
         logger.info(f"✅ Matplotlib: {matplotlib.__version__}")
     except ImportError:
         logger.error("❌ 请安装matplotlib: pip install matplotlib")
         return
-    
-    required = ['requests', 'pandas']
+
+    required = ["requests", "pandas"]
     for lib in required:
         try:
             __import__(lib)
@@ -111,78 +103,79 @@ def main(sector_input=None):
         except ImportError:
             logger.error(f"❌ 请安装{lib}: pip install {lib}")
             return
-    
+
     try:
         import numpy
+
         logger.debug(f"✅ numpy: {numpy.__version__}")
     except ImportError:
         logger.warning("⚠️  numpy未安装，某些功能可能受限，建议安装: pip install numpy")
-    
+
     logger.info(f"\n🎯 目标股票列表: {target_stocks}")
     logger.info("🚀 开始自动化分析...\n")
-    
+
     current_dir = os.path.dirname(os.path.abspath(__file__))
     reports_base_dir = config.report_output_dir
     reports_dir = os.path.join(current_dir, reports_base_dir)
-    
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = os.path.join(reports_dir, f"reports_{timestamp}")
-    
+
     try:
         os.makedirs(output_dir, exist_ok=True)
         logger.info(f"📁 创建报告文件夹: {output_dir}")
     except Exception as e:
         logger.error(f"❌ 无法创建报告文件夹: {e}", exc_info=True)
         return
-    
+
     stocks_input = " ".join(target_stocks)
-    successful_reports, failed_reports = process_multiple_stocks(
-        stocks_input, output_dir, sector_input=sector_input
-    )
-    
+    successful_reports, failed_reports = process_multiple_stocks(stocks_input, output_dir, sector_input=sector_input)
+
     logger.info("\n" + "=" * 70)
     logger.info("📊 批量处理完成!")
     logger.info("=" * 70)
-    
+
     if successful_reports:
         logger.info(f"✅ 成功生成 {len(successful_reports)} 个报告:")
         for code, name, path in successful_reports:
             logger.info(f"  - {name} ({code})")
-    
+
     if failed_reports:
         logger.warning(f"❌ 失败 {len(failed_reports)} 个:")
         for code, name, reason in failed_reports:
             logger.warning(f"  - {name} ({code}): {reason}")
-    
+
     logger.info("\n" + "=" * 70)
     logger.info("📦 正在创建ZIP压缩包...")
     zip_file = create_zip_archive(output_dir)
-    
+
     if zip_file:
         logger.info(f"\n🎉 所有任务完成!")
         logger.info(f"📁 报告文件夹: {output_dir}")
         logger.info(f"📦 ZIP压缩包: {zip_file}")
     else:
         logger.info(f"\n📁 报告保存在: {output_dir}")
-    
+
     logger.info("\n👋 程序结束")
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         import argparse
+
         parser = argparse.ArgumentParser()
-        default_stocks = ' '.join(config.stocks)
-        parser.add_argument('--mode', choices=['manual', 'telegram'], default='manual')
-        parser.add_argument('--stocks', type=str, default=default_stocks)
-        parser.add_argument('--sector', type=str, default=None, help='行业代码（如BK1031）或行业名称（如光伏设备）')
-        parser.add_argument('--config', type=str, default=None, help='配置文件路径（可选）')
+        default_stocks = " ".join(config.stocks)
+        parser.add_argument("--mode", choices=["manual", "telegram"], default="manual")
+        parser.add_argument("--stocks", type=str, default=default_stocks)
+        parser.add_argument("--sector", type=str, default=None, help="行业代码（如BK1031）或行业名称（如光伏设备）")
+        parser.add_argument("--config", type=str, default=None, help="配置文件路径（可选）")
         args = parser.parse_args()
-        
+
         # 如果指定了配置文件，重新加载配置
         if args.config:
             config = Config(config_path=args.config)
-        
-        if args.mode == 'telegram':
+
+        if args.mode == "telegram":
             logger.warning("⚠️ Telegram模式需要配置环境变量")
         else:
             if args.stocks != default_stocks:
@@ -190,9 +183,9 @@ if __name__ == "__main__":
             else:
                 target_stocks = config.stocks
             cfg = config.load()
-            if 'stocks' not in cfg:
-                cfg['stocks'] = {}
-            cfg['stocks']['default'] = target_stocks
+            if "stocks" not in cfg:
+                cfg["stocks"] = {}
+            cfg["stocks"]["default"] = target_stocks
             config._config = cfg
             main(sector_input=args.sector)
     else:

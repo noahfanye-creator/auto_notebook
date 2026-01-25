@@ -29,6 +29,7 @@ Thumbs.db
 # Data
 data/
 !tests/data/
+!src/data/
 cache/
 *.csv
 *.xlsx

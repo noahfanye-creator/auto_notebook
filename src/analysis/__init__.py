@@ -8,14 +8,11 @@ from .indicators import (
     calculate_kdj,
     calculate_bollinger,
     calculate_volume_indicators,
-    calculate_all_indicators
+    calculate_all_indicators,
 )
 
 # 市场分析模块
-from .market_analyzer import (
-    get_market_summary_analysis,
-    get_market_sentiment_analysis
-)
+from .market_analyzer import get_market_summary_analysis, get_market_sentiment_analysis
 
 # 缠论模块（如果存在）
 try:
@@ -25,7 +22,7 @@ try:
     from .chan_xd import find_xd
     from .chan_zhongshu import find_zhongshu
     from .chan_third_buy import detect_third_buy, run_chan_pipeline
-    
+
     __all__ = [
         # 技术指标
         "calculate_technical_indicators",

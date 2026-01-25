@@ -2,6 +2,7 @@
 可选数据库模块
 SQLite 存储历史 K 线等，供 fetcher 层优先读库、未命中再请求接口并回写
 """
+
 from typing import Optional
 
 from .manager import StockDatabase
@@ -16,6 +17,7 @@ def get_stock_db() -> Optional[StockDatabase]:
         return _db
     try:
         from src.config import Config
+
         cfg = Config().load()
         db_cfg = cfg.get("database") or {}
         if not db_cfg.get("enabled", False):

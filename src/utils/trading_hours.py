@@ -2,6 +2,7 @@
 交易时间检查模块
 检查A股和港股是否为交易日
 """
+
 from datetime import datetime
 import pandas as pd
 
@@ -15,7 +16,7 @@ except Exception:
 def is_china_stock_market_open() -> bool:
     """
     检查今日是否为A股交易日（自动剔除法定节假日）
-    
+
     Returns:
         bool: True表示今日是交易日，False表示休市
     """
@@ -27,11 +28,11 @@ def is_china_stock_market_open() -> bool:
         df = ak.stock_zh_index_daily(symbol="sh000001")
         if df is None or df.empty:
             return True  # 接口故障时默认运行，防止漏发
-        
+
         # 比较最后交易日与系统今日日期
-        last_trade_date = pd.to_datetime(df.iloc[-1]['date']).date()
+        last_trade_date = pd.to_datetime(df.iloc[-1]["date"]).date()
         today = datetime.now().date()
-        
+
         # 如果上证最后交易日期不是今天，说明今天休市
         if last_trade_date != today:
             return False
@@ -44,7 +45,7 @@ def is_china_stock_market_open() -> bool:
 def is_hk_stock_market_open() -> bool:
     """
     检查今日是否为港股交易日
-    
+
     Returns:
         bool: True表示今日是交易日，False表示休市
     """
@@ -56,10 +57,10 @@ def is_hk_stock_market_open() -> bool:
         df = ak.stock_hk_index_daily_sina(symbol="HSI")
         if df is None or df.empty:
             return True
-        
-        last_trade_date = pd.to_datetime(df.iloc[-1]['date']).date()
+
+        last_trade_date = pd.to_datetime(df.iloc[-1]["date"]).date()
         today = datetime.now().date()
-        
+
         if last_trade_date != today:
             return False
         return True

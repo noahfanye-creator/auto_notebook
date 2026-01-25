@@ -3,6 +3,7 @@
 使用 SQLite 按 (code, scale) 存储 K 线，先读库、缺的再拉接口、新数据回写
 增强版：支持数据验证、元数据跟踪、市场指数存储
 """
+
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -43,7 +44,7 @@ class StockDatabase:
             )
             """
         )
-        
+
         # 表2: 元数据表（跟踪数据状态）
         self.conn.execute(
             """
@@ -61,7 +62,7 @@ class StockDatabase:
             )
             """
         )
-        
+
         # 表3: 市场指数数据表
         self.conn.execute(
             """
@@ -81,18 +82,12 @@ class StockDatabase:
             )
             """
         )
-        
+
         # 创建索引
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_kline_code_scale ON kline_by_scale(code, scale)"
-        )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_kline_date ON kline_by_scale(date)"
-        )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_index_code_scale ON market_indices(index_code, scale)"
-        )
-        
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_kline_code_scale ON kline_by_scale(code, scale)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_kline_date ON kline_by_scale(date)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_index_code_scale ON market_indices(index_code, scale)")
+
         self.conn.commit()
         logger.info("数据库表初始化完成")
 
@@ -100,10 +95,10 @@ class StockDatabase:
         """
         验证数据有效性
         确保只有成功返回的有效数据才写入数据库
-        
+
         Args:
             df: 待验证的DataFrame（Date 可为 index 或列）
-        
+
         Returns:
             bool: 数据是否有效
         """
@@ -116,7 +111,7 @@ class StockDatabase:
         if not all(c in work.columns for c in required_cols):
             logger.warning("数据缺少必需列")
             return False
-        
+
         try:
             # 1. 价格数据应为正数
             for col in ["Open", "High", "Low", "Close"]:
@@ -147,25 +142,20 @@ class StockDatabase:
         except Exception as e:
             logger.warning("数据验证过程出错: %s", e)
             return False
-    
+
     def save_kline_data(
-        self, 
-        code: str, 
-        scale: int, 
-        df: pd.DataFrame,
-        stock_name: Optional[str] = None,
-        validate: bool = True
+        self, code: str, scale: int, df: pd.DataFrame, stock_name: Optional[str] = None, validate: bool = True
     ) -> int:
         """
         写入 K 线数据（只有成功返回的数据才写入）
-        
+
         Args:
             code: 股票代码
             scale: K线周期
             df: K线数据DataFrame
             stock_name: 股票名称（可选）
             validate: 是否验证数据（默认True，确保只有有效数据才写入）
-        
+
         Returns:
             int: 实际写入的记录数，如果验证失败返回0
         """
@@ -173,15 +163,12 @@ class StockDatabase:
         if validate and not self.validate_data(df):
             logger.warning("数据验证失败，不写入数据库: %s scale=%s", code, scale)
             return 0
-        
+
         if df is None or df.empty:
             return 0
-        
+
         try:
-            subset = (
-                df.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
-                .copy()
-            )
+            subset = df.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]].copy()
             subset = subset.rename(
                 columns={
                     "Date": "date",
@@ -195,10 +182,10 @@ class StockDatabase:
             subset["date"] = subset["date"].astype(str)
             subset["code"] = code
             subset["scale"] = scale
-            
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             inserted_count = 0
-            
+
             for _, row in subset.iterrows():
                 try:
                     self.conn.execute(
@@ -208,47 +195,47 @@ class StockDatabase:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            str(row["code"]), int(row["scale"]), str(row["date"]),
-                            float(row["open"]), float(row["high"]), 
-                            float(row["low"]), float(row["close"]), 
-                            float(row["volume"]), now
-                        )
+                            str(row["code"]),
+                            int(row["scale"]),
+                            str(row["date"]),
+                            float(row["open"]),
+                            float(row["high"]),
+                            float(row["low"]),
+                            float(row["close"]),
+                            float(row["volume"]),
+                            now,
+                        ),
                     )
                     inserted_count += 1
                 except Exception as e:
                     logger.warning("插入单条记录失败: %s", e)
                     continue
-            
+
             self.conn.commit()
-            
+
             # 更新元数据
             if inserted_count > 0:
                 self._update_meta_info(code, scale, stock_name, len(subset), df.index.max())
                 logger.info("DB 写入成功: %s scale=%s %d 条", code, scale, inserted_count)
-            
+
             return inserted_count
-            
+
         except Exception as e:
             logger.error("保存K线数据失败: %s", e)
             self.conn.rollback()
             return 0
-    
+
     def _update_meta_info(
-        self, 
-        code: str, 
-        scale: int, 
-        stock_name: Optional[str],
-        data_count: int,
-        latest_date: pd.Timestamp
+        self, code: str, scale: int, stock_name: Optional[str], data_count: int, latest_date: pd.Timestamp
     ) -> None:
         """更新元数据表"""
         try:
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            latest_date_str = latest_date.strftime('%Y-%m-%d %H:%M:%S')
-            
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            latest_date_str = latest_date.strftime("%Y-%m-%d %H:%M:%S")
+
             # 获取市场类型
-            market_type = 'A股' if code.startswith(('sh', 'sz')) else '港股'
-            
+            market_type = "A股" if code.startswith(("sh", "sz")) else "港股"
+
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO meta_info 
@@ -256,10 +243,7 @@ class StockDatabase:
                  data_count, last_success_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    code, stock_name, market_type, latest_date_str, scale,
-                    data_count, now, now
-                )
+                (code, stock_name, market_type, latest_date_str, scale, data_count, now, now),
             )
             self.conn.commit()
         except Exception as e:
@@ -274,10 +258,7 @@ class StockDatabase:
         limit: Optional[int] = None,
     ) -> Optional[pd.DataFrame]:
         """按 (code, scale) 查 K 线，可选日期范围与条数（取最近 limit 条）"""
-        query = (
-            "SELECT date, open, high, low, close, volume FROM kline_by_scale "
-            "WHERE code = ? AND scale = ?"
-        )
+        query = "SELECT date, open, high, low, close, volume FROM kline_by_scale " "WHERE code = ? AND scale = ?"
         params: List[object] = [code, scale]
         if start_date:
             query += " AND date >= ?"
@@ -320,39 +301,36 @@ class StockDatabase:
         return pd.to_datetime(row[0])
 
     def save_market_index_data(
-        self,
-        index_code: str,
-        index_name: str,
-        scale: int,
-        df: pd.DataFrame,
-        validate: bool = True
+        self, index_code: str, index_name: str, scale: int, df: pd.DataFrame, validate: bool = True
     ) -> int:
         """保存市场指数数据（只有成功返回的数据才写入）"""
         if validate and not self.validate_data(df):
             logger.warning("指数数据验证失败: %s", index_code)
             return 0
-        
+
         if df is None or df.empty:
             return 0
-        
+
         try:
             subset = df.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]].copy()
-            subset = subset.rename(columns={
-                "Date": "date",
-                "Open": "open",
-                "High": "high",
-                "Low": "low",
-                "Close": "close",
-                "Volume": "volume",
-            })
+            subset = subset.rename(
+                columns={
+                    "Date": "date",
+                    "Open": "open",
+                    "High": "high",
+                    "Low": "low",
+                    "Close": "close",
+                    "Volume": "volume",
+                }
+            )
             subset["date"] = subset["date"].astype(str)
             subset["index_code"] = index_code
             subset["index_name"] = index_name
             subset["scale"] = scale
-            
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             inserted_count = 0
-            
+
             for _, row in subset.iterrows():
                 try:
                     self.conn.execute(
@@ -362,103 +340,106 @@ class StockDatabase:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            index_code, index_name, scale, str(row["date"]),
-                            float(row["open"]), float(row["high"]), 
-                            float(row["low"]), float(row["close"]), 
-                            float(row["volume"]), now
-                        )
+                            index_code,
+                            index_name,
+                            scale,
+                            str(row["date"]),
+                            float(row["open"]),
+                            float(row["high"]),
+                            float(row["low"]),
+                            float(row["close"]),
+                            float(row["volume"]),
+                            now,
+                        ),
                     )
                     inserted_count += 1
                 except Exception as e:
                     logger.warning("插入指数数据失败: %s", e)
                     continue
-            
+
             self.conn.commit()
             if inserted_count > 0:
                 logger.info("指数 DB 写入成功: %s %d 条", index_code, inserted_count)
             return inserted_count
-            
+
         except Exception as e:
             logger.error("保存指数数据失败: %s", e)
             self.conn.rollback()
             return 0
-    
-    def get_market_index_data(
-        self,
-        index_code: str,
-        scale: int,
-        limit: Optional[int] = None
-    ) -> Optional[pd.DataFrame]:
+
+    def get_market_index_data(self, index_code: str, scale: int, limit: Optional[int] = None) -> Optional[pd.DataFrame]:
         """获取市场指数数据"""
         query = (
             "SELECT date, open, high, low, close, volume FROM market_indices "
             "WHERE index_code = ? AND scale = ? ORDER BY date DESC"
         )
-        
+
         if limit:
             query += f" LIMIT {int(limit)}"
-        
+
         try:
             df = pd.read_sql_query(query, self.conn, params=(index_code, scale))
             if df.empty:
                 return None
-            
+
             df = df.sort_values("date").reset_index(drop=True)
-            df = df.rename(columns={
-                "date": "Date",
-                "open": "Open",
-                "high": "High",
-                "low": "Low",
-                "close": "Close",
-                "volume": "Volume",
-            })
-            
+            df = df.rename(
+                columns={
+                    "date": "Date",
+                    "open": "Open",
+                    "high": "High",
+                    "low": "Low",
+                    "close": "Close",
+                    "volume": "Volume",
+                }
+            )
+
             df["Date"] = pd.to_datetime(df["Date"])
             df.set_index("Date", inplace=True)
-            
-            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
+
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
             return df
         except Exception as e:
             logger.error("读取指数数据失败: %s", e)
             return None
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """获取数据库统计信息"""
         stats = {}
-        
+
         try:
             # K线数据统计
             cursor = self.conn.execute("SELECT COUNT(*) FROM kline_by_scale")
-            stats['total_kline_records'] = cursor.fetchone()[0]
-            
+            stats["total_kline_records"] = cursor.fetchone()[0]
+
             cursor = self.conn.execute("SELECT COUNT(DISTINCT code) FROM kline_by_scale")
-            stats['total_stocks'] = cursor.fetchone()[0]
-            
+            stats["total_stocks"] = cursor.fetchone()[0]
+
             # 指数数据统计
             cursor = self.conn.execute("SELECT COUNT(*) FROM market_indices")
-            stats['total_index_records'] = cursor.fetchone()[0]
-            
+            stats["total_index_records"] = cursor.fetchone()[0]
+
             cursor = self.conn.execute("SELECT COUNT(DISTINCT index_code) FROM market_indices")
-            stats['total_indices'] = cursor.fetchone()[0]
-            
+            stats["total_indices"] = cursor.fetchone()[0]
+
             # 数据库文件大小
             db_file = Path(self.db_path)
             if db_file.exists():
-                stats['db_size_mb'] = db_file.stat().st_size / (1024 * 1024)
-            
+                stats["db_size_mb"] = db_file.stat().st_size / (1024 * 1024)
+
         except Exception as e:
             logger.error("获取统计信息失败: %s", e)
-        
+
         return stats
-    
+
     def close(self) -> None:
         """关闭数据库连接"""
         self.conn.close()
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()

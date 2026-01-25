@@ -2,6 +2,7 @@
 完整流程集成测试
 Mock 网络与数据源，验证「解析参数 → 拉数 → 算指标 → 生成 PDF」流程
 """
+
 import os
 import tempfile
 from unittest.mock import patch, MagicMock

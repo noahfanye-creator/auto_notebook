@@ -1821,6 +1821,11 @@ def process_multiple_stocks(stock_codes_input, output_folder, sector_input=None)
     successful_reports = []
     failed_reports = []
     
+    # 加载行业映射
+    sector_map = load_sector_index_map()
+    name_to_code = sector_map.get('name_to_code', {})
+    code_to_name = sector_map.get('code_to_name', {})
+    
     for i, code_input in enumerate(stock_codes, 1):
         print(f"\n" + "=" * 70)
         print(f"第 {i}/{len(stock_codes)} 个股票: {code_input}")
@@ -1830,234 +1835,132 @@ def process_multiple_stocks(stock_codes_input, output_folder, sector_input=None)
             print("⚠️  跳过空代码")
             continue
         
-        # 检查是否为行业代码或行业名称（误输入）
-        sector_map = load_sector_index_map()
-        name_to_code = sector_map.get('name_to_code', {})
-        code_to_name = sector_map.get('code_to_name', {})
+        is_sector_input = False
+        stock_code = None
+        stock_name = None
         
-        # 首先检查是否为行业代码（BK开头）
+        # 1. 检查是否为行业代码（BK开头）
         if code_input.startswith('BK') and code_input in code_to_name:
-            sector_name = code_to_name[code_input]
-            print(f"⚠️  检测到行业代码 '{code_input}' ({sector_name})，这不是股票代码")
-            print(f"   提示: 如需生成行业报告，请使用 --sector 参数")
-            print(f"   示例: python3 github_stock_bot.py --mode manual --stocks \"688630\" --sector \"{code_input}\"")
-            failed_reports.append((code_input, code_input, f"输入的是行业代码而非股票代码: {sector_name}"))
-            continue
-        
-        # 检查是否包含点号分隔的多个行业名称（如"航空航天.互联网服务"）
-        if '.' in code_input or '，' in code_input or ',' in code_input:
-            parts = re.split(r'[.，,]', code_input)
-            matched_parts = []
-            for part in parts:
-                part = part.strip()
-                if not part:
-                    continue
-                if part in name_to_code:
-                    matched_parts.append(part)
-                else:
-                    # 模糊匹配：检查部分是否在行业名称中，或行业名称在部分中
-                    matched = False
-                    for sector_name in name_to_code.keys():
-                        if part in sector_name or sector_name in part:
-                            matched_parts.append(sector_name)
-                            matched = True
-                            break
-                    
-                    # 如果还没匹配到，尝试更宽松的匹配（包含关键词）
-                    if not matched:
-                        # 提取关键词（2-4个字符的子串）
-                        keywords = []
-                        for i in range(len(part)):
-                            for j in range(i+2, min(i+5, len(part)+1)):
-                                keywords.append(part[i:j])
-                        
-                        for sector_name in name_to_code.keys():
-                            # 检查是否有共同的关键词
-                            if any(keyword in sector_name for keyword in keywords if len(keyword) >= 2):
-                                matched_parts.append(sector_name)
-                                matched = True
-                                break
-                    
-                    # 如果仍然没匹配到，但包含中文字符且不像股票代码，也认为是可能的行业名称
-                    if not matched and re.search(r'[\u4e00-\u9fa5]', part) and len(part) >= 2:
-                        # 检查是否像股票代码
-                        is_likely_code = re.match(r'^\d{4,6}$', part) or part.startswith(('BK', 'sh', 'sz', 'HK'))
-                        if not is_likely_code:
-                            matched_parts.append(part)
+            stock_code = code_input
+            stock_name = code_to_name[code_input]
+            is_sector_input = True
+            print(f"ℹ️  识别为行业代码: {stock_code} ({stock_name})")
             
-            # 如果至少匹配到一个行业，就认为是行业名称组合
-            if matched_parts:
-                print(f"⚠️  检测到多个行业名称组合: {code_input}")
-                print(f"   识别到的行业: {', '.join(matched_parts)}")
-                print(f"   提示: 行业报告需要分别生成，请使用 --sector 参数")
-                print(f"   示例: python3 github_stock_bot.py --mode manual --stocks \"688630\" --sector \"{matched_parts[0]}\"")
-                failed_reports.append((code_input, code_input, f"多个行业名称组合: {', '.join(matched_parts)}"))
-                continue
-        
-        # 完全匹配检查
-        if code_input in name_to_code:
-            print(f"⚠️  检测到行业名称 '{code_input}'，这不是股票代码")
-            print(f"   提示: 如需生成行业报告，请使用 --sector 参数")
-            print(f"   示例: python3 github_stock_bot.py --mode manual --stocks \"688630\" --sector \"{code_input}\"")
-            failed_reports.append((code_input, code_input, "输入的是行业名称而非股票代码"))
-            continue
-        
-        # 如果输入看起来不像股票代码（不是数字，不是BK开头，不是sh/sz/HK开头）
-        is_likely_stock_code = (
-            re.match(r'^\d{4,6}$', code_input) or 
-            code_input.startswith('BK') or 
-            code_input.startswith(('sh', 'sz', 'HK'))
-        )
-        
-        # 如果包含中文字符且不像股票代码，进行模糊匹配
-        if not is_likely_stock_code and re.search(r'[\u4e00-\u9fa5]', code_input):
-            matched_sectors = []
-            for sector_name in name_to_code.keys():
-                # 检查输入是否包含行业名称的关键部分，或行业名称包含输入
-                if (len(code_input) >= 2 and 
-                    (code_input in sector_name or sector_name in code_input or 
-                     any(word in sector_name for word in code_input if len(word) >= 2))):
-                    matched_sectors.append(sector_name)
+        # 2. 检查是否为行业名称（完全匹配）
+        elif code_input in name_to_code:
+            stock_code = name_to_code[code_input]
+            stock_name = code_input
+            is_sector_input = True
+            print(f"ℹ️  识别为行业名称: {stock_name} ({stock_code})")
             
-            if matched_sectors:
-                print(f"⚠️  输入 '{code_input}' 看起来不像股票代码")
-                print(f"   检测到可能的行业名称: {', '.join(matched_sectors[:3])}")
-                print(f"   提示: 如需生成行业报告，请使用 --sector 参数")
-                print(f"   示例: python3 github_stock_bot.py --mode manual --stocks \"688630\" --sector \"{matched_sectors[0]}\"")
-                failed_reports.append((code_input, code_input, f"可能是行业名称而非股票代码: {matched_sectors[0]}"))
-                continue
+        # 3. 模糊匹配行业名称
+        if not is_sector_input:
+            # 检查是否包含点号组合或仅是模糊匹配
+            potential_name = code_input.split('.')[0] if '.' in code_input else code_input
+            for s_name, s_code in name_to_code.items():
+                if len(potential_name) >= 2 and (potential_name in s_name or s_name in potential_name):
+                    stock_code = s_code
+                    stock_name = s_name
+                    is_sector_input = True
+                    print(f"ℹ️  模糊匹配到行业: {stock_name} ({stock_code})")
+                    break
         
-        stock_code = normalize_code(code_input)
-        print(f"📈 分析股票: {stock_code}")
-        
-        stock_name = get_name(stock_code)
-        
-        # 如果获取股票名称失败或名称与输入相同，可能是行业名称
-        if not stock_name or stock_name == code_input:
-            # 检查是否是行业名称的模糊匹配
-            matched_sectors = []
-            for sector_name, sector_code in name_to_code.items():
-                if code_input in sector_name or sector_name in code_input:
-                    matched_sectors.append(sector_name)
+        # 4. 如果仍然不是行业，则作为普通股票处理
+        if not is_sector_input:
+            stock_code = normalize_code(code_input)
+            stock_name = get_name(stock_code)
+            print(f"📈 识别为股票: {stock_code} ({stock_name or '未知'})")
             
-            if matched_sectors:
-                print(f"⚠️  无法获取股票数据，检测到可能的行业名称: {', '.join(matched_sectors[:3])}")
-                print(f"   提示: 如需生成行业报告，请使用 --sector 参数")
-                failed_reports.append((code_input, code_input, f"可能是行业名称而非股票代码: {matched_sectors[0]}"))
-                continue
-            else:
-                print(f"📛 股票名称: {stock_name or '未知'}")
-        else:
-            print(f"📛 股票名称: {stock_name}")
-        
+        if not stock_name:
+            stock_name = "未知股票" if not is_sector_input else "未知行业"
+
         timestamp = datetime.now().strftime('%H%M%S')
         temp_dir = os.path.join(output_folder, f"temp_{stock_code}_{timestamp}")
         os.makedirs(temp_dir, exist_ok=True)
-        print(f"📁 临时目录: {temp_dir}")
         
         print("\n1️⃣  获取市场指数数据...")
-        is_hk = stock_code.startswith('HK.')
+        is_hk = str(stock_code).startswith('HK.')
         indices_data = get_market_indices_data(is_hk=is_hk)
-        print(f"✅ 获取到 {len(indices_data)} 个市场指数数据")
         
-        # 如果指定了行业，获取行业板块指数
-        sector_indices_data = {}
-        if sector_input:
-            print(f"\n1️⃣.5  获取行业板块指数数据...")
-            sector_indices_data = get_sector_indices_data(sector_input, count=150)
+        # 获取行业板块指数
+        current_sector = sector_input or (stock_code if is_sector_input else None)
+        if current_sector:
+            print(f"   获取行业板块指数: {current_sector}")
+            sector_indices_data = get_sector_indices_data(current_sector, count=150)
             if sector_indices_data:
-                print(f"✅ 获取到 {len(sector_indices_data)} 个行业板块指数数据")
-                # 合并到 indices_data
                 indices_data.update(sector_indices_data)
-            else:
-                print(f"⚠️  未获取到行业板块指数数据")
-        
-        print("\n2️⃣  获取个股数据...")
+
+        print("\n2️⃣  获取数据...")
         stock_data_map = {}
-        
-        # 判断数据源
-        data_source = '新浪财经/东方财富' if is_hk else '新浪财经'
+        data_source = 'AKShare(行业)' if is_sector_input else ('新浪财经/东方财富' if is_hk else '新浪财经')
         
         report_meta = {
             'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'data_source': data_source,
-            'index_source': '新浪财经(港股指数)' if is_hk else '新浪财经',
+            'index_source': '新浪财经',
             'indicator_params': {
                 'ma_windows': [5, 10, 20, 60, 250],
                 'macd': [12, 26, 9],
-                'rsi': 14,
-                'boll': 20,
-                'kdj': 9,
-                'wr': 14,
-                'volume_ma': [5, 10]
+                'rsi': 14, 'boll': 20, 'kdj': 9, 'wr': 14, 'volume_ma': [5, 10]
             }
         }
-        
-        print("  获取日线数据...")
-        df_day = fetch_kline_data(stock_code, 240, 100)
-        if df_day is not None:
-            df_day = calculate_technical_indicators(df_day)
-            stock_data_map['day'] = df_day
-            print(f"    ✓ 日线: {len(df_day)} 条数据")
-        else:
-            print(f"❌ 无法获取日线数据，跳过此股票")
-            failed_reports.append((stock_code, stock_name, "无法获取日线数据"))
-            try:
-                shutil.rmtree(temp_dir)
-            except:
-                pass
+
+        # 数据抓取
+        try:
+            if is_sector_input:
+                import akshare as ak
+                # 日线
+                df_day = ak.stock_board_industry_hist_em(symbol=stock_name, period="daily", start_date="20230101", end_date="20261231", adjust="")
+                if df_day is not None and not df_day.empty:
+                    df_day = df_day.rename(columns={'日期':'Date','开盘':'Open','收盘':'Close','最高':'High','最低':'Low','成交量':'Volume'})
+                    df_day['Date'] = pd.to_datetime(df_day['Date'])
+                    df_day.set_index('Date', inplace=True)
+                    df_day = calculate_technical_indicators(df_day)
+                    stock_data_map['day'] = df_day
+                    stock_data_map['week'] = resample_kline_data(df_day, 'W')
+                    stock_data_map['month'] = resample_kline_data(df_day, 'M')
+                    
+                    # 分钟线 (尝试3次)
+                    for p in ["30", "5"]:
+                        for retry in range(3):
+                            try:
+                                df_min = ak.stock_board_industry_hist_min_em(symbol=stock_name, period=p)
+                                if df_min is not None and not df_min.empty:
+                                    df_min = df_min.rename(columns={'时间':'Date','开盘':'Open','收盘':'Close','最高':'High','最低':'Low','成交量':'Volume'})
+                                    df_min['Date'] = pd.to_datetime(df_min['Date'])
+                                    df_min.set_index('Date', inplace=True)
+                                    df_min = calculate_technical_indicators(df_min)
+                                    stock_data_map[f"{p}m"] = df_min
+                                    break
+                            except:
+                                time.sleep(2)
+            else:
+                # 股票数据
+                df_day = fetch_kline_data(stock_code, 240, 150)
+                if df_day is not None:
+                    df_day = calculate_technical_indicators(df_day)
+                    stock_data_map['day'] = df_day
+                    stock_data_map['week'] = resample_kline_data(df_day, 'W')
+                    stock_data_map['month'] = resample_kline_data(df_day, 'M')
+                    
+                    for p in [30, 5, 1]:
+                        df_min = fetch_kline_data(stock_code, p, 100)
+                        if df_min is not None:
+                            if not is_hk:
+                                df_min = normalize_beijing_time(df_min)
+                                df_min = filter_trading_hours(df_min)
+                            df_min = calculate_technical_indicators(df_min)
+                            stock_data_map[f"{p}m" if p != 1 else "1m"] = df_min
+        except Exception as e:
+            print(f"❌ 数据获取异常: {e}")
+
+        if 'day' not in stock_data_map or stock_data_map['day'] is None:
+            print(f"❌ 无法获取核心数据，跳过 {stock_code}")
+            failed_reports.append((stock_code, stock_name, "无数据"))
             continue
-        
-        if df_day is not None:
-            print("  生成周线数据...")
-            df_week = resample_kline_data(df_day, 'W')
-            stock_data_map['week'] = df_week
-            
-            print("  生成月线数据...")
-            df_month = resample_kline_data(df_day, 'M')
-            stock_data_map['month'] = df_month
-        
-        print("  获取30分钟数据...")
-        df_30m = fetch_kline_data(stock_code, 30, 100)
-        if df_30m is not None:
-            # 港股数据可能已经是正确时区，A股需要转换
-            if not is_hk:
-                df_30m = normalize_beijing_time(df_30m)
-                df_30m = filter_trading_hours(df_30m)
-            df_30m = calculate_technical_indicators(df_30m)
-            stock_data_map['30m'] = df_30m
-        
-        print("  获取5分钟数据...")
-        df_5m = fetch_kline_data(stock_code, 5, 100)
-        if df_5m is not None:
-            # 港股数据可能已经是正确时区，A股需要转换
-            if not is_hk:
-                df_5m = normalize_beijing_time(df_5m)
-                df_5m = filter_trading_hours(df_5m)
-            df_5m = calculate_technical_indicators(df_5m)
-            stock_data_map['5m'] = df_5m
-        
-        print("  获取1分钟数据...")
-        df_1m = fetch_kline_data(stock_code, 1, 100)
-        one_min_source = data_source
-        
-        if df_1m is not None and not df_1m.empty:
-            # 港股数据可能已经是正确时区，A股需要转换
-            if not is_hk:
-                df_1m = normalize_beijing_time(df_1m)
-                df_1m = filter_trading_hours(df_1m)
-            df_1m = calculate_technical_indicators(df_1m)
-            stock_data_map['1m'] = df_1m
-            print(f"    ✓ 1分钟: {len(df_1m)} 条数据")
-        else:
-            print("    ❌ 无法获取真实1分钟数据，跳过1分钟图表")
-            one_min_source = '无数据'
-        
+
         print(f"\n3️⃣  生成图表...")
-        
-        index_charts_count = create_indices_charts(indices_data, temp_dir)
-        print(f"   生成 {index_charts_count} 个指数图表")
-        
+        create_indices_charts(indices_data, temp_dir)
         chart_configs = [
             ('day', stock_data_map.get('day'), f"{stock_name} 日线", 60),
             ('week', stock_data_map.get('week'), f"{stock_name} 周线", 60),
@@ -2066,47 +1969,26 @@ def process_multiple_stocks(stock_codes_input, output_folder, sector_input=None)
             ('5m', stock_data_map.get('5m'), f"{stock_name} 5分钟", 100),
             ('1m', stock_data_map.get('1m'), f"{stock_name} 1分钟", 100),
         ]
-        
-        stock_charts_count = 0
         for key, df, title, max_points in chart_configs:
             if df is not None and len(df) >= 5:
-                img_path = os.path.join(temp_dir, f"{key}.png")
-                if create_candle_chart(df, title, img_path, max_points=max_points):
-                    stock_charts_count += 1
-        
-        print(f"✅ 图表生成完成: 个股{stock_charts_count}个, 指数{index_charts_count}个")
-        print(f"📊 图表包含: K线、MACD、KDJ、成交量、量比")
-        
+                create_candle_chart(df, title, os.path.join(temp_dir, f"{key}.png"), max_points=max_points)
+
         print(f"\n4️⃣  生成PDF报告...")
-        
         safe_name = re.sub(r'[\\/*?:"<>|]', '_', stock_name)
-        pdf_filename = f"{safe_name}_{stock_code}_增强分析报告.pdf"
-        pdf_path = os.path.join(output_folder, pdf_filename)
-        
-        report_meta['one_min_source'] = one_min_source
+        pdf_path = os.path.join(output_folder, f"{safe_name}_{stock_code}_增强分析报告.pdf")
         stock_data_map['_meta'] = report_meta
         
-        success = create_pdf_with_market_analysis(
-            stock_code, stock_name, stock_data_map, indices_data, pdf_path, temp_dir
-        )
-        
-        if success and os.path.exists(pdf_path):
-            file_size = os.path.getsize(pdf_path) / 1024
-            print(f"\n🎉 报告生成完成!")
-            print(f"📄 文件: {pdf_path}")
-            print(f"📏 大小: {file_size:.1f} KB")
-            print(f"📊 包含: {len(indices_data)} 个市场指数分析 + 成交量量比图表 + 1分钟K线")
+        if create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indices_data, pdf_path, temp_dir):
+            print(f"✅ 报告已生成: {pdf_path}")
             successful_reports.append((stock_code, stock_name, pdf_path))
         else:
-            print("❌ PDF生成失败")
             failed_reports.append((stock_code, stock_name, "PDF生成失败"))
-        
+
         try:
             shutil.rmtree(temp_dir)
-            print(f"🧹 已清理临时目录: {temp_dir}")
         except:
             pass
-    
+            
     return successful_reports, failed_reports
 
 # ==================== 6. ZIP打包功能 ====================

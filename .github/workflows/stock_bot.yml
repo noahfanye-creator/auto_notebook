@@ -40,8 +40,9 @@ jobs:
       run: |
         export TZ='Asia/Shanghai'
         # 记录运行开始时间
-        echo "RUN_START_TIME=$(date +%s)" >> $GITHUB_ENV
-        echo "运行开始时间: $(date)"
+        RUN_START_TIME=$(date +%s)
+        echo "RUN_START_TIME=$RUN_START_TIME" >> $GITHUB_ENV
+        echo "运行开始时间: $(date) (Timestamp: $RUN_START_TIME)"
         
         STOCKS="${{ github.event.inputs.stocks }}"
         if [ -z "$STOCKS" ]; then

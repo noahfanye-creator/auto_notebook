@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🔄 自动恢复 Agent 配置（需确认）",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/.cursor && bash auto_restore_agent_config.sh",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "focus": true,
+        "clear": true
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "📦 同步 Agent 配置到项目",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/.cursor && bash sync_agent_config.sh",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "🔄 恢复 Agent 配置（直接恢复）",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/.cursor && bash restore_agent_config.sh",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    }
+  ]
+}

@@ -1989,6 +1989,12 @@ def process_multiple_stocks(stock_codes_input, output_folder, sector_input=None)
         except:
             pass
             
+        # 港股或连续请求时添加延迟，避免被封IP
+        if i < len(stock_codes):
+            delay = 3 if str(stock_code).startswith('HK.') or is_sector_input else 1
+            print(f"💤 等待 {delay} 秒后处理下一个股票...")
+            time.sleep(delay)
+            
     return successful_reports, failed_reports
 
 # ==================== 6. ZIP打包功能 ====================

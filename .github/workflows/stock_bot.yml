@@ -40,7 +40,7 @@ jobs:
       run: |
         export TZ='Asia/Shanghai'
         # 记录运行开始时间
-        RUN_START_TIME=$(date +%s)
+        export RUN_START_TIME=$(date +%s)
         echo "RUN_START_TIME=$RUN_START_TIME" >> $GITHUB_ENV
         echo "运行开始时间: $(date) (Timestamp: $RUN_START_TIME)"
         
@@ -58,7 +58,7 @@ jobs:
         PDF_COUNT=$(python3 -c "
         import os
         import glob
-        run_start = int('$RUN_START_TIME')
+        run_start = int(os.environ.get('RUN_START_TIME', 0))
         pdfs = glob.glob('reports/**/*.pdf', recursive=True)
         pdfs = [p for p in pdfs if os.path.isfile(p) and os.path.getmtime(p) >= run_start - 60]
         print(len(pdfs))

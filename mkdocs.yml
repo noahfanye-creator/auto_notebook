@@ -1,0 +1,33 @@
+site_name: Stock Analysis Bot
+site_description: 股票分析报告生成器 API 与使用说明
+site_url: https://github.com/noahfanye-creator/stock-analysis-bot
+repo_url: https://github.com/noahfanye-creator/stock-analysis-bot
+docs_dir: docs
+theme:
+  name: readthedocs
+  language: zh
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            show_source: true
+
+nav:
+  - 首页: index.md
+  - API:
+    - 数据获取: api/data.md
+    - 分析与报告: api/analysis_report.md
+    - 工具与配置: api/utils_config.md
+  - 使用说明:
+    - 行业板块: SECTOR_INDEX_USAGE.md
+    - 依赖管理: DEPENDENCIES.md
+    - A股数据源: A_SHARE_DATA_SOURCES.md
+    - 港股数据源: HK_DATA_SOURCES.md
+
+markdown_extensions:
+  - pymdownx.superfences

@@ -1,25 +1,25 @@
+# 依赖管理说明
+# 
+# 本项目已将依赖拆分为三个文件：
+# 1. requirements-core.txt  - 核心依赖（必需）
+# 2. requirements-optional.txt - 可选依赖（增强功能）
+# 3. requirements-dev.txt - 开发依赖（仅开发/测试需要）
+#
+# 快速安装：
+#   pip install -r requirements-core.txt
+#   pip install -r requirements-optional.txt  # 可选
+#   pip install -r requirements-dev.txt  # 仅开发时
+#
+# 或安装所有依赖：
+#   pip install -r requirements-core.txt -r requirements-optional.txt
+#
+# 本文件保留用于向后兼容，建议使用上述分类文件
+
 # 核心依赖
-pandas>=1.5.0
-numpy>=1.23.0
+-r requirements-core.txt
 
-# 数据获取
-yfinance>=0.2.0
-requests>=2.28.0
-akshare>=1.12.0  # AKShare，港股数据备选数据源（可选）
+# 可选依赖（取消注释以安装）
+# -r requirements-optional.txt
 
-# 技术分析
-ta>=0.10.0
-
-# 数据可视化
-matplotlib>=3.6.0
-seaborn>=0.12.0
-
-# 实用工具
-python-dotenv>=1.0.0
-loguru>=0.6.0
-
-# 配置管理
-pyyaml>=6.0
-
-# 开发工具
-pytest>=7.2.0
+# 开发依赖（仅开发时使用）
+# -r requirements-dev.txt

@@ -1,0 +1,16 @@
+# 本地代码质量检查
+# 安装: pip install pre-commit && pre-commit install
+# 运行: pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: black --check .
+        language: system
+        types: [python]
+      - id: flake8
+        name: flake8
+        entry: flake8 . --max-line-length=120 --extend-ignore=E203,W503
+        language: system
+        types: [python]

@@ -1,0 +1,5 @@
+# 文档生成依赖（可选）
+# 使用: pip install -r requirements-docs.txt && mkdocs serve
+mkdocs>=1.5.0
+mkdocstrings[python]>=0.24.0
+mkdocs-material>=9.0.0

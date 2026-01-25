@@ -23,8 +23,13 @@ Thumbs.db
 *.swp
 *.swo
 
+# Cursor 项目级设置（允许提交到 Git，用于多设备同步）
+# .cursor/ 目录已允许提交，用于多设备同步项目级设置和 Agent 配置
+
 # Data
 data/
+!tests/data/
+cache/
 *.csv
 *.xlsx
 *.db
@@ -48,3 +53,44 @@ private_key*
 
 # 监控冷却状态（由 Action 写入，可选提交）
 config/signal_cooldown.json
+
+# 报告文件（保留文件夹结构）
+reports/*
+!reports/.gitkeep
+!reports/daily_review/
+reports/daily_review/*
+!reports/daily_review/.gitkeep
+
+# ============================================
+# 开发中的功能模块（暂不推送到 GitHub）
+# ============================================
+
+# 每日复盘功能（开发中）
+daily_review.py
+DAILY_REVIEW_README.md
+DAILY_REVIEW_SUMMARY.md
+run_daily_review.sh
+docs/DAILY_REVIEW_GUIDE.md
+.github/workflows/daily_review.yml
+
+# 缠论分析模块（开发中）
+src/analysis/chan_*.py
+scan_third_buy*.py
+examples/chan_demo.py
+
+# 监控模块（开发中）
+src/monitor/
+.github/workflows/stock_monitor.yml
+
+# 策略规则配置（开发中）
+config/strategy_rules/
+
+# 测试和工具脚本（开发中）
+run_test_now.sh
+test_*.py
+!tests/**/test_*.py
+update_market_macd_akshare.py
+stock_cursor.sql
+
+# 本地报告生成器（不上传到GitHub）
+local_report_generator/

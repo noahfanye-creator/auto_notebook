@@ -130,24 +130,22 @@ class HKDataSources:
             # 转换周期
             scale_map = {
                 "1d": 240,  # 日线
-                "1w": 240,  # 周线用日线
-                "1M": 240,  # 月线用日线
+                "1w": 240,  # 周线
+                "1M": 240,  # 月线
             }
             scale = scale_map.get(period, 240)
             
-            # 新浪财经港股K线接口
-            url = "http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
+            # 新浪财经港股K线专用接口（注意 URL 和 symbol 参数）
+            url = "https://quotes.sina.com.cn/cn/api/jsonp_v2.php/var%20_hk/HK_StockService.getHKKLineData"
             params = {
-                'symbol': sina_code,
+                'symbol': symbol,
                 'scale': scale,
-                'datalen': min(count, 1023),  # 新浪最多1023条
-                'ma': 'no'
+                'datalen': min(count, 1023)
             }
             
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://finance.sina.com.cn',
-                'Accept': 'application/json'
+                'Referer': 'https://finance.sina.com.cn'
             }
             
             response = _request_with_retry(url, params=params, headers=headers, timeout=15)
@@ -155,21 +153,14 @@ class HKDataSources:
             if response.status_code != 200:
                 return None
             
-            try:
-                data = response.json()
-            except:
-                # 尝试解析非标准JSON
-                text = response.text
-                if not text or text.strip() == '':
-                    return None
-                # 可能是JSONP格式
-                if text.startswith('(') and text.endswith(')'):
-                    text = text[1:-1]
-                try:
-                    import json
-                    data = json.loads(text)
-                except:
-                    return None
+            text = response.text
+            # 解析 JSONP: var _hk=[{...}];
+            if '[' in text and ']' in text:
+                json_str = text[text.find('['):text.rfind(']')+1]
+                import json
+                data = json.loads(json_str)
+            else:
+                return None
             
             if not data or len(data) == 0:
                 return None
@@ -297,79 +288,84 @@ class HKDataSources:
         symbol = HKDataSources.normalize_code(code)
         minute_map = {"1m": "1", "5m": "5", "15m": "15", "30m": "30", "60m": "60"}
 
-        # 分钟线优先用 AKShare（接口支持分钟）
-        if period in minute_map:
+        # 针对网络不稳定做整体重试
+        for attempt in range(3):
+            if attempt > 0:
+                time.sleep(2 * attempt)
+
+            # 分钟线优先用 AKShare（接口支持分钟）
+            if period in minute_map:
+                if AK_AVAILABLE:
+                    try:
+                        now = datetime.now()
+                        start = (now - timedelta(days=7)).strftime("%Y-%m-%d 09:30:00")
+                        end = now.strftime("%Y-%m-%d %H:%M:%S")
+                        df = ak.stock_hk_hist_min_em(
+                            symbol=symbol,
+                            period=minute_map[period],
+                            adjust="",
+                            start_date=start,
+                            end_date=end
+                        )
+                        if df is not None and not df.empty:
+                            df = df.tail(count).copy()
+                            df.rename(columns={
+                                "时间": "Date",
+                                "开盘": "Open",
+                                "收盘": "Close",
+                                "最高": "High",
+                                "最低": "Low",
+                                "成交量": "Volume"
+                            }, inplace=True)
+                            df["Date"] = pd.to_datetime(df["Date"])
+                            df.set_index("Date", inplace=True)
+                            df.sort_index(inplace=True)
+                            logger.info(f"✅ 从AKShare获取 {len(df)} 条分钟数据")
+                            return df
+                    except Exception as e:
+                        logger.debug(f"AKShare分钟数据失败: {e}")
+                continue
+
+            # 1. 优先尝试东方财富（目前对港股最稳定）
+            df = HKDataSources.get_kline_from_eastmoney(symbol, period, count)
+            if df is not None and not df.empty:
+                return df
+            
+            # 2. 尝试新浪财经
+            df = HKDataSources.get_kline_from_sina(symbol, period, count)
+            if df is not None and not df.empty:
+                return df
+
+            # 3. 尝试AKShare（如果可用）
             if AK_AVAILABLE:
                 try:
                     now = datetime.now()
-                    start = (now - timedelta(days=7)).strftime("%Y-%m-%d 09:30:00")
-                    end = now.strftime("%Y-%m-%d %H:%M:%S")
-                    df = ak.stock_hk_hist_min_em(
-                        symbol=symbol,
-                        period=minute_map[period],
-                        adjust="",
-                        start_date=start,
-                        end_date=end
-                    )
-                    if df is not None and not df.empty:
-                        df = df.tail(count).copy()
-                        df.rename(columns={
-                            "时间": "Date",
-                            "开盘": "Open",
-                            "收盘": "Close",
-                            "最高": "High",
-                            "最低": "Low",
-                            "成交量": "Volume"
-                        }, inplace=True)
-                        df["Date"] = pd.to_datetime(df["Date"])
-                        df.set_index("Date", inplace=True)
-                        df.sort_index(inplace=True)
-                        logger.info(f"✅ 从AKShare获取 {len(df)} 条分钟数据")
-                        return df
+                    if period in {"1d", "1w", "1M"}:
+                        period_map = {"1d": "daily", "1w": "weekly", "1M": "monthly"}
+                        df = ak.stock_hk_hist(
+                            symbol=symbol,
+                            period=period_map[period],
+                            start_date=(now - timedelta(days=365 * 3)).strftime("%Y%m%d"),
+                            end_date=now.strftime("%Y%m%d"),
+                            adjust=""
+                        )
+                        if df is not None and not df.empty:
+                            df = df.tail(count).copy()
+                            df.rename(columns={
+                                "日期": "Date",
+                                "开盘": "Open",
+                                "收盘": "Close",
+                                "最高": "High",
+                                "最低": "Low",
+                                "成交量": "Volume"
+                            }, inplace=True)
+                            df["Date"] = pd.to_datetime(df["Date"])
+                            df.set_index("Date", inplace=True)
+                            df.sort_index(inplace=True)
+                            logger.info(f"✅ 从AKShare获取 {len(df)} 条数据")
+                            return df
                 except Exception as e:
-                    logger.debug(f"AKShare分钟数据失败: {e}")
-            return None
-        
-        # 1. 优先尝试新浪财经
-        df = HKDataSources.get_kline_from_sina(symbol, period, count)
-        if df is not None and not df.empty:
-            return df
-        
-        # 2. 尝试东方财富
-        df = HKDataSources.get_kline_from_eastmoney(symbol, period, count)
-        if df is not None and not df.empty:
-            return df
-        
-        # 3. 尝试AKShare（如果可用）
-        if AK_AVAILABLE:
-            try:
-                now = datetime.now()
-                if period in {"1d", "1w", "1M"}:
-                    period_map = {"1d": "daily", "1w": "weekly", "1M": "monthly"}
-                    df = ak.stock_hk_hist(
-                        symbol=symbol,
-                        period=period_map[period],
-                        start_date=(now - timedelta(days=365 * 3)).strftime("%Y%m%d"),
-                        end_date=now.strftime("%Y%m%d"),
-                        adjust=""
-                    )
-                    if df is not None and not df.empty:
-                        df = df.tail(count).copy()
-                        df.rename(columns={
-                            "日期": "Date",
-                            "开盘": "Open",
-                            "收盘": "Close",
-                            "最高": "High",
-                            "最低": "Low",
-                            "成交量": "Volume"
-                        }, inplace=True)
-                        df["Date"] = pd.to_datetime(df["Date"])
-                        df.set_index("Date", inplace=True)
-                        df.sort_index(inplace=True)
-                        logger.info(f"✅ 从AKShare获取 {len(df)} 条数据")
-                        return df
-            except Exception as e:
-                logger.debug(f"AKShare失败: {e}")
+                    logger.debug(f"AKShare失败: {e}")
         
         logger.error(f"❌ 所有数据源都无法获取港股数据: {code}")
         return None

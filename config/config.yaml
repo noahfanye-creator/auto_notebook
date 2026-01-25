@@ -1,0 +1,79 @@
+# 股票分析报告生成器配置文件
+
+# 目标股票列表（默认）
+stocks:
+  default: ["600460", "300474", "300623", "300420"]
+
+# 数据源配置
+data_sources:
+  a_share:
+    primary: "sina"
+    fallback: ["sina_fallback", "eastmoney", "tencent", "akshare"]
+  hk_stock:
+    primary: "sina"
+    fallback: ["akshare"]
+  index_source: "sina"
+
+# 技术指标参数配置
+indicators:
+  ma_windows: [5, 10, 20, 60, 250]
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  rsi: 14
+  boll: 20
+  kdj: 9
+  wr: 14
+  volume_ma: [5, 10]
+
+# 报告生成配置
+report:
+  output_dir: "reports"
+  include_charts: true
+  chart_dpi: 150
+  max_points:
+    day: 60
+    week: 60
+    month: 60
+    minute: 100
+
+# 数据获取配置
+data:
+  kline:
+    default_datalen: 150
+    default_scale: 240  # 日线
+  indices:
+    count: 150
+  sector:
+    count: 150
+
+# 延迟配置（避免被封IP）
+delays:
+  hk_stock: 3  # 港股延迟（秒）
+  sector: 3     # 行业数据延迟（秒）
+  normal: 1     # 普通延迟（秒）
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "logs/stock_bot.log"
+  console: true
+
+# 缓存配置
+cache:
+  dir: "cache"
+  default_ttl_hours: 1  # 默认缓存1小时
+  enabled: true
+
+# 本地数据库（积累 + 复用，仅本地有效）
+database:
+  enabled: true
+  path: "data/stock_data.db"
+
+# 并发处理配置
+parallel:
+  enabled: true
+  max_workers: 3  # 最大并发数
+  batch_size: 5  # 每批处理数量
+  delay_between_batches: 1  # 批次间延迟（秒）

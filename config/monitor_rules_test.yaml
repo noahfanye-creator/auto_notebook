@@ -1,0 +1,10 @@
+- code: sh600460
+  condition: '>'
+  indicator: RSI
+  name: RSI超买测试
+  threshold: 70
+- code: sh600460
+  condition: '>'
+  indicator: Close
+  name: 突破MA20测试
+  threshold: MA20

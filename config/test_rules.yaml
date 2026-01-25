@@ -1,0 +1,10 @@
+- code: sh600519
+  condition: <
+  indicator: RSI
+  name: RSI监控测试
+  threshold: 80
+- code: sh600519
+  condition: '>'
+  indicator: Close
+  name: 价格与MA5对比
+  threshold: MA5

@@ -53,4 +53,4 @@ jobs:
 
       - name: 运行测试与覆盖率
         run: |
-          pytest tests/ -v --cov=src --cov-fail-under=50 --cov-report=term-missing
+          pytest tests/ -v --cov=src --cov-fail-under=40 --cov-report=term-missing

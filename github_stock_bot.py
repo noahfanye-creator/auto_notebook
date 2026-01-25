@@ -824,6 +824,114 @@ def get_market_indices_data(is_hk=False):
     
     return indices_data
 
+def load_sector_index_map():
+    """加载行业代码对照表"""
+    try:
+        import json
+        import os
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'sector_index_map.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"⚠️ 加载行业代码对照表失败: {e}")
+    return {'code_to_name': {}, 'name_to_code': {}}
+
+def get_sector_index_name(sector_input):
+    """根据代码或名称获取行业名称"""
+    sector_map = load_sector_index_map()
+    code_to_name = sector_map.get('code_to_name', {})
+    name_to_code = sector_map.get('name_to_code', {})
+    
+    # 如果是代码（BK开头）
+    if sector_input.startswith('BK') and sector_input in code_to_name:
+        return code_to_name[sector_input]
+    # 如果是名称
+    elif sector_input in name_to_code:
+        return sector_input
+    # 尝试模糊匹配
+    else:
+        for code, name in code_to_name.items():
+            if sector_input in name or name in sector_input:
+                return name
+    return None
+
+def get_sector_indices_data(sector_input=None, count=150):
+    """
+    获取行业板块指数数据
+    
+    Args:
+        sector_input: 行业代码（如"BK1031"）或行业名称（如"光伏设备"）
+        count: 获取数据条数
+    
+    Returns:
+        dict: {code: {'name': name, 'data': df, 'type': 'SECTOR'}}
+    """
+    sector_data = {}
+    
+    if not sector_input:
+        return sector_data
+    
+    try:
+        import akshare as ak
+    except Exception as e:
+        print(f"  ❌ AKShare不可用，无法获取行业板块指数: {e}")
+        return sector_data
+    
+    # 获取行业名称
+    sector_name = get_sector_index_name(sector_input)
+    if not sector_name:
+        print(f"  ❌ 未找到行业: {sector_input}")
+        return sector_data
+    
+    print(f"📊 获取行业板块指数数据: {sector_name}")
+    
+    try:
+        # 获取行业板块日线K线
+        df = ak.stock_board_industry_hist_em(symbol=sector_name, period="日k", adjust="")
+        
+        if df is not None and not df.empty:
+            # 标准化列名
+            df = df.rename(columns={
+                '日期': 'Date',
+                '开盘': 'Open',
+                '收盘': 'Close',
+                '最高': 'High',
+                '最低': 'Low',
+                '成交量': 'Volume'
+            })
+            
+            # 处理日期
+            df['Date'] = pd.to_datetime(df['Date'])
+            df.set_index('Date', inplace=True)
+            df.sort_index(inplace=True)
+            
+            # 限制数据量
+            df = df.tail(count)
+            
+            # 计算技术指标
+            df = calculate_technical_indicators(df)
+            
+            # 获取行业代码
+            sector_map = load_sector_index_map()
+            name_to_code = sector_map.get('name_to_code', {})
+            sector_code = name_to_code.get(sector_name, sector_input)
+            
+            sector_data[sector_code] = {
+                'name': sector_name,
+                'data': df,
+                'type': 'SECTOR'
+            }
+            print(f"    ✓ 获取成功: {len(df)} 条数据")
+        else:
+            print(f"    ❌ 数据为空")
+    except Exception as e:
+        print(f"    ❌ 获取失败: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return sector_data
+
 def get_market_summary_analysis(indices_data, market_label="A股"):
     """生成市场综合分析"""
     if not indices_data:
@@ -1205,7 +1313,12 @@ def _build_report_summary(stock_name, stock_code, stock_data_map, indices_data):
     
     if indices_data:
         market_label = "港股" if stock_code.startswith("HK.") else "A股"
-        summary_lines.append(f"本次报告包含 {len(indices_data)} 个{market_label}主要指数的综合分析。")
+        sector_count = sum(1 for info in indices_data.values() if info.get('type') == 'SECTOR')
+        market_count = len(indices_data) - sector_count
+        if sector_count > 0:
+            summary_lines.append(f"本次报告包含 {market_count} 个{market_label}主要指数和 {sector_count} 个行业板块指数的综合分析。")
+        else:
+            summary_lines.append(f"本次报告包含 {market_count} 个{market_label}主要指数的综合分析。")
     
     return summary_lines
 
@@ -1376,12 +1489,16 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
         
         story.append(PageBreak())
         
+        # 分离市场指数和行业指数
+        market_indices = {k: v for k, v in indices_data.items() if v.get('type') != 'SECTOR'}
+        sector_indices = {k: v for k, v in indices_data.items() if v.get('type') == 'SECTOR'}
+        
         # 第一部分：市场指数综合分析
         story.append(Paragraph("一、市场指数综合分析", section_style))
         story.append(Spacer(1, 10))
         
         market_label = "港股" if stock_code.startswith("HK.") else "A股"
-        market_analysis = get_market_summary_analysis(indices_data, market_label=market_label)
+        market_analysis = get_market_summary_analysis(market_indices, market_label=market_label)
         if market_analysis:
             for line in market_analysis.split('\n'):
                 if line.strip():
@@ -1389,12 +1506,12 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
         else:
             story.append(Paragraph("市场指数数据获取失败", normal_style))
         
-        # 添加指数图表
+        # 添加市场指数图表
         story.append(Spacer(1, 10))
         story.append(Paragraph("主要指数日线图:", normal_style))
         
         index_charts = []
-        for code, info in indices_data.items():
+        for code, info in market_indices.items():
             img_path = os.path.join(temp_dir, f"index_{code}.png")
             if os.path.exists(img_path):
                 try:
@@ -1432,13 +1549,76 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
                 ]))
                 story.append(table)
         
+        # 如果有行业指数，单独展示
+        if sector_indices:
+            story.append(PageBreak())
+            story.append(Paragraph("一.五、行业板块指数分析", section_style))
+            story.append(Spacer(1, 10))
+            
+            for code, info in sector_indices.items():
+                df = info['data']
+                name = info['name']
+                if df is not None and len(df) >= 20:
+                    last = df.iloc[-1]
+                    trend = _get_trend_status(last)
+                    rsi_status = "中性"
+                    if 'RSI' in last:
+                        rsi_status = "超买" if last['RSI'] > 70 else ("超卖" if last['RSI'] < 30 else "中性")
+                    
+                    story.append(Paragraph(f"{name}:", normal_style))
+                    story.append(Paragraph(f"  现价: {last['Close']:.2f}, 趋势: {trend}, RSI: {rsi_status}", normal_style))
+                    story.append(Spacer(1, 5))
+            
+            # 添加行业指数图表
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("行业板块指数日线图:", normal_style))
+            
+            sector_charts = []
+            for code, info in sector_indices.items():
+                img_path = os.path.join(temp_dir, f"index_{code}.png")
+                if os.path.exists(img_path):
+                    try:
+                        from PIL import Image as PILImage
+                        pil_img = PILImage.open(img_path)
+                        img_width, img_height = pil_img.size
+                        ratio = min(250/img_width, 150/img_height)
+                        
+                        img = Image(img_path, width=img_width*ratio, height=img_height*ratio)
+                        sector_charts.append([Paragraph(info['name'], normal_style), img])
+                    except:
+                        continue
+            
+            if sector_charts:
+                rows = []
+                for i in range(0, len(sector_charts), 2):
+                    row = []
+                    row.append(sector_charts[i][0])
+                    row.append(sector_charts[i][1])
+                    if i+1 < len(sector_charts):
+                        row.append(sector_charts[i+1][0])
+                        row.append(sector_charts[i+1][1])
+                    else:
+                        row.append(Paragraph("", normal_style))
+                        row.append(Paragraph("", normal_style))
+                    rows.append(row)
+                
+                if rows:
+                    table = Table(rows, colWidths=[60, 220, 60, 220])
+                    table.setStyle(TableStyle([
+                        ('FONTNAME', (0,0), (-1,-1), FONT_NAME),
+                        ('FONTSIZE', (0,0), (-1,-1), 8),
+                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ]))
+                    story.append(table)
+        
         story.append(PageBreak())
         
         # 第二部分：市场情绪分析
         story.append(Paragraph("二、市场情绪分析", section_style))
         story.append(Spacer(1, 10))
         
-        sentiment_analysis = get_market_sentiment_analysis(indices_data, market_label=market_label)
+        sentiment_analysis = get_market_sentiment_analysis(market_indices, market_label=market_label)
         if sentiment_analysis:
             for line in sentiment_analysis.split('\n'):
                 if line.strip():
@@ -1616,8 +1796,15 @@ def create_pdf_with_market_analysis(stock_code, stock_name, stock_data_map, indi
 
 # ==================== 5. 批量处理函数 ====================
 
-def process_multiple_stocks(stock_codes_input, output_folder):
-    """批量处理多个股票"""
+def process_multiple_stocks(stock_codes_input, output_folder, sector_input=None):
+    """
+    批量处理多个股票
+    
+    Args:
+        stock_codes_input: 股票代码列表（空格或逗号分隔）
+        output_folder: 输出文件夹
+        sector_input: 行业代码（如"BK1031"）或行业名称（如"光伏设备"），可选
+    """
     stock_codes = parse_stock_list(stock_codes_input)
     print(f"📊 批量分析 {len(stock_codes)} 个股票")
     
@@ -1648,6 +1835,18 @@ def process_multiple_stocks(stock_codes_input, output_folder):
         is_hk = stock_code.startswith('HK.')
         indices_data = get_market_indices_data(is_hk=is_hk)
         print(f"✅ 获取到 {len(indices_data)} 个市场指数数据")
+        
+        # 如果指定了行业，获取行业板块指数
+        sector_indices_data = {}
+        if sector_input:
+            print(f"\n1️⃣.5  获取行业板块指数数据...")
+            sector_indices_data = get_sector_indices_data(sector_input, count=150)
+            if sector_indices_data:
+                print(f"✅ 获取到 {len(sector_indices_data)} 个行业板块指数数据")
+                # 合并到 indices_data
+                indices_data.update(sector_indices_data)
+            else:
+                print(f"⚠️  未获取到行业板块指数数据")
         
         print("\n2️⃣  获取个股数据...")
         stock_data_map = {}
@@ -1911,7 +2110,8 @@ def main():
         return
     
     stocks_input = " ".join(TARGET_STOCKS)
-    successful_reports, failed_reports = process_multiple_stocks(stocks_input, output_dir)
+    sector_input = globals().get('SECTOR_INPUT', None)
+    successful_reports, failed_reports = process_multiple_stocks(stocks_input, output_dir, sector_input=sector_input)
     
     print("\n" + "=" * 70)
     print("📊 批量处理完成!")
@@ -1946,6 +2146,7 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser()
         parser.add_argument('--mode', choices=['manual', 'telegram'], default='manual')
         parser.add_argument('--stocks', type=str, default=' '.join(TARGET_STOCKS))
+        parser.add_argument('--sector', type=str, default=None, help='行业代码（如BK1031）或行业名称（如光伏设备）')
         args = parser.parse_args()
         
         if args.mode == 'telegram':
@@ -1953,6 +2154,9 @@ if __name__ == "__main__":
         else:
             if args.stocks != ' '.join(TARGET_STOCKS):
                 TARGET_STOCKS = parse_stock_list(args.stocks)
+            # 将sector参数存储为全局变量，供process_multiple_stocks使用
+            global SECTOR_INPUT
+            SECTOR_INPUT = args.sector
             main()
     else:
         main()

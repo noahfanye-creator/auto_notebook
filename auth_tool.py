@@ -2,8 +2,8 @@ import os
 import json
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-# 权限范围：只需上传和管理由该应用创建的文件
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+# 权限范围：完整读写权限，确保能访问现有文件夹
+SCOPES = ['https://www.googleapis.com/auth/drive']
 
 def get_refresh_token():
     """

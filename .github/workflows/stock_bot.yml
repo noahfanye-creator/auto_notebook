@@ -5,12 +5,12 @@ name: 股票分析机器人 🤖
 # ============================================================================
 # 请在 GitHub Repository Settings > Secrets and variables > Actions 中配置以下变量：
 #
-# 1. TELEGRAM_TOKEN
+# 1. TELEGRAM_BOT_TOKEN
 #    说明: Telegram Bot Token
 #    获取方式: 通过 @BotFather 创建机器人后获取
 #    示例: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 #
-# 2. TELEGRAM_TO
+# 2. TELEGRAM_CHAT_ID
 #    说明: Telegram Chat ID（接收消息的聊天ID）
 #    获取方式: 通过 @userinfobot 或 @getidsbot 获取
 #    示例: 123456789
@@ -136,11 +136,11 @@ jobs:
           exit 1
         fi
         
-        TELEGRAM_TOKEN="${{ secrets.TELEGRAM_TOKEN }}"
-        TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_TO }}"
+        TELEGRAM_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+        TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
         
         if [ -z "$TELEGRAM_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-          echo "❌ Telegram配置缺失，请检查secrets: TELEGRAM_TOKEN, TELEGRAM_TO"
+          echo "❌ Telegram配置缺失，请检查secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID"
           exit 1
         fi
         

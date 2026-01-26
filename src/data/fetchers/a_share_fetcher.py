@@ -86,7 +86,9 @@ def get_name(symbol: str) -> str:
     return symbol
 
 
-def fetch_kline_data_from_sina(symbol: str, scale: int = 240, datalen: int = 100) -> Optional[pd.DataFrame]:
+def fetch_kline_data_from_sina(
+    symbol: str, scale: int = 240, datalen: int = 100
+) -> Optional[pd.DataFrame]:
     """从新浪财经获取K线数据
 
     Args:
@@ -201,7 +203,9 @@ def fetch_kline_data_from_sina(symbol: str, scale: int = 240, datalen: int = 100
         raise DataFetchError(f"从新浪财经获取数据失败 {symbol}: {e}") from e
 
 
-def fetch_kline_data_fallback(symbol: str, scale: int = 240, datalen: int = 100) -> Optional[pd.DataFrame]:
+def fetch_kline_data_fallback(
+    symbol: str, scale: int = 240, datalen: int = 100
+) -> Optional[pd.DataFrame]:
     """新浪K线备用接口（json_v2）"""
     try:
         url = (
@@ -238,7 +242,9 @@ def fetch_kline_data_fallback(symbol: str, scale: int = 240, datalen: int = 100)
         raise DataFetchError(f"备用接口获取失败 {symbol} scale={scale}: {e}") from e
 
 
-def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optional[pd.DataFrame]:
+def fetch_kline_data(
+    symbol: str, scale: int = 240, datalen: int = 100
+) -> Optional[pd.DataFrame]:
     """获取K线数据 - 支持A股和港股（统一入口，自动降级，带缓存；仅从网络获取，不读不写数据库）
 
     Args:

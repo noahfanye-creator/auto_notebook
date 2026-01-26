@@ -63,7 +63,10 @@ def _get_trend_status(last: pd.Series) -> str:
 
 
 def _build_report_summary(
-    stock_name: str, stock_code: str, stock_data_map: Dict[str, Any], indices_data: Dict[str, Any]
+    stock_name: str,
+    stock_code: str,
+    stock_data_map: Dict[str, Any],
+    indices_data: Dict[str, Any],
 ) -> List[str]:
     """生成结构化摘要文本
 
@@ -106,12 +109,16 @@ def _build_report_summary(
         trend = _get_trend_status(last)
         rsi_status = "中性"
         if "RSI" in last:
-            rsi_status = "超买" if last["RSI"] > 70 else ("超卖" if last["RSI"] < 30 else "中性")
+            rsi_status = (
+                "超买" if last["RSI"] > 70 else ("超卖" if last["RSI"] < 30 else "中性")
+            )
         macd_status = "多头" if last.get("MACD", 0) > 0 else "空头"
         
         # 使用数据获取时点的最新价格
         price_text = (
-            f"{latest_price:.2f}" if latest_price is not None else f"{last['Close']:.2f}"
+            f"{latest_price:.2f}"
+            if latest_price is not None
+            else f"{last['Close']:.2f}"
         )
         summary_lines.append(
             f"{stock_name}({stock_code}) 最新价格: {price_text}，趋势: {trend}，"
@@ -130,11 +137,14 @@ def _build_report_summary(
 
     if indices_data:
         market_label = "港股" if stock_code.startswith("HK.") else "A股"
-        sector_count = sum(1 for info in indices_data.values() if info.get("type") == "SECTOR")
+        sector_count = sum(
+            1 for info in indices_data.values() if info.get("type") == "SECTOR"
+        )
         market_count = len(indices_data) - sector_count
         if sector_count > 0:
             summary_lines.append(
-                f"本次报告包含 {market_count} 个{market_label}主要指数和 {sector_count} 个行业板块指数的综合分析。"
+                f"本次报告包含 {market_count} 个{market_label}主要指数和 "
+                f"{sector_count} 个行业板块指数的综合分析。"
             )
         else:
             summary_lines.append(f"本次报告包含 {market_count} 个{market_label}主要指数的综合分析。")

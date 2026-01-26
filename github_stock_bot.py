@@ -7,6 +7,10 @@
 import os
 import sys
 from datetime import datetime
+from dotenv import load_dotenv
+
+# 加载 .env 环境变量
+load_dotenv()
 
 # 可选依赖检查
 try:
@@ -17,6 +21,7 @@ except Exception:
 # 导入工具函数模块
 from src.utils.code_normalizer import is_hk_stock, parse_stock_list
 from src.utils.trading_hours import is_china_stock_market_open, is_hk_stock_market_open
+from src.utils.gdrive_uploader import upload_to_gdrive
 
 # 导入报告生成模块
 from src.report import process_multiple_stocks, create_zip_archive
@@ -145,6 +150,10 @@ def main(sector_input=None):
         logger.warning(f"❌ 失败 {len(failed_reports)} 个:")
         for code, name, reason in failed_reports:
             logger.warning(f"  - {name} ({code}): {reason}")
+
+    # 上传到 Google Drive
+    logger.info("📤 正在上传报告到 Google Drive...")
+    upload_to_gdrive(output_dir)
 
     logger.info("\n" + "=" * 70)
     logger.info("📦 正在创建ZIP压缩包...")

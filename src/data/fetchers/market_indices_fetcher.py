@@ -1,6 +1,6 @@
 """
 市场指数数据获取模块
-获取A股和港股市场指数数据
+获取A股和港股市场指数数据；仅从网络获取，不读不写数据库。
 """
 
 from typing import Dict, Any
@@ -13,7 +13,7 @@ from src.analysis import calculate_technical_indicators
 
 
 def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
-    """获取市场指数数据 - 使用新浪财经（带缓存）
+    """获取市场指数数据 - 仅从网络获取，带缓存
 
     Args:
         is_hk: 是否为港股市场
@@ -46,6 +46,7 @@ def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
         }
 
         print("📊 获取港股指数数据...")
+
         try:
             import akshare as ak
         except Exception as e:
@@ -54,6 +55,8 @@ def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
 
         for code, name in hk_indices.items():
             print(f"  获取 {name}...")
+            df_raw = None
+
             try:
                 df = ak.stock_hk_index_daily_sina(symbol=code)
                 if df is not None and not df.empty:
@@ -71,27 +74,18 @@ def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
                     df_raw.set_index("Date", inplace=True)
                     df_raw.sort_index(inplace=True)
                     df_raw = df_raw.tail(150)
-
-                    # 保存原始数据到数据库（只有成功返回的数据才写入）
-                    try:
-                        from src.database import get_stock_db
-
-                        db = get_stock_db()
-                        if db is not None:
-                            inserted = db.save_market_index_data(code, name, 240, df_raw, validate=True)
-                            if inserted > 0:
-                                print(f"    💾 已保存到数据库: {inserted} 条")
-                    except Exception:
-                        pass  # 数据库保存失败不影响主流程
-
-                    # 计算技术指标（用于报告）
-                    df = calculate_technical_indicators(df_raw)
-                    indices_data[code] = {"name": name, "data": df, "type": "HK"}
-                    print(f"    ✓ 获取成功: {len(df)} 条数据")
                 else:
                     print("    ❌ 获取失败")
             except Exception as e:
                 print(f"    ❌ 获取失败: {e}")
+
+            # 计算技术指标（用于报告）
+            if df_raw is not None and not df_raw.empty:
+                df = calculate_technical_indicators(df_raw)
+                indices_data[code] = {"name": name, "data": df, "type": "HK"}
+                print(f"    ✓ 获取成功: {len(df)} 条数据")
+            else:
+                print("    ❌ 获取失败")
     else:
         a_indices = {
             "sh000001": "上证指数",
@@ -105,34 +99,25 @@ def get_market_indices_data(is_hk: bool = False) -> Dict[str, Any]:
         }
 
         print("📊 获取A股指数数据...")
+
         for code, name in a_indices.items():
             print(f"  获取 {name}...")
+            df_raw = None
 
             try:
-                # 使用新浪财经接口获取指数数据
                 df_raw = fetch_kline_data(code, 240, 150)
-
-                if df_raw is not None and not df_raw.empty:
-                    # 保存原始数据到数据库（只有成功返回的数据才写入）
-                    try:
-                        from src.database import get_stock_db
-
-                        db = get_stock_db()
-                        if db is not None:
-                            inserted = db.save_market_index_data(code, name, 240, df_raw, validate=True)
-                            if inserted > 0:
-                                print(f"    💾 已保存到数据库: {inserted} 条")
-                    except Exception:
-                        pass  # 数据库保存失败不影响主流程
-
-                    # 计算技术指标（用于报告）
-                    df = calculate_technical_indicators(df_raw)
-                    indices_data[code] = {"name": name, "data": df, "type": "A"}
-                    print(f"    ✓ 获取成功: {len(df)} 条数据")
-                else:
+                if df_raw is None or df_raw.empty:
                     print("    ❌ 获取失败")
             except Exception as e:
                 print(f"    ❌ 获取失败: {e}")
+
+            # 计算技术指标（用于报告）
+            if df_raw is not None and not df_raw.empty:
+                df = calculate_technical_indicators(df_raw)
+                indices_data[code] = {"name": name, "data": df, "type": "A"}
+                print(f"    ✓ 获取成功: {len(df)} 条数据")
+            else:
+                print("    ❌ 获取失败")
 
     # 保存到缓存
     if indices_data:

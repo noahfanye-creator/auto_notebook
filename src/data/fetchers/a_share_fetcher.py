@@ -238,19 +238,8 @@ def fetch_kline_data_fallback(symbol: str, scale: int = 240, datalen: int = 100)
         raise DataFetchError(f"备用接口获取失败 {symbol} scale={scale}: {e}") from e
 
 
-def _db_recent_enough(df: pd.DataFrame, scale: int) -> bool:
-    """库中数据是否足够新：日线最新距现在≤2 天，分钟线最新距现在≤1 小时"""
-    if df is None or df.empty:
-        return False
-    latest = pd.Timestamp(df.index.max())
-    now = pd.Timestamp.now()
-    if scale == 240:
-        return (now - latest).total_seconds() <= 2 * 86400
-    return (now - latest).total_seconds() <= 3600
-
-
 def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optional[pd.DataFrame]:
-    """获取K线数据 - 支持A股和港股（统一入口，自动降级，带缓存，本地 DB 积累复用）
+    """获取K线数据 - 支持A股和港股（统一入口，自动降级，带缓存；仅从网络获取，不读不写数据库）
 
     Args:
         symbol: 股票代码，A股如 sh600460，港股如 HK.00700
@@ -262,23 +251,11 @@ def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optio
     """
     is_ashare = symbol.startswith("sh") or symbol.startswith("sz")
 
-    # 本地 DB 优先（仅 A 股）：先读库，够用且够新则直接返回
-    if is_ashare:
-        try:
-            from src.database import get_stock_db
-
-            db = get_stock_db()
-            if db is not None:
-                df_db = db.get_kline_data(symbol, scale, limit=datalen)
-                if df_db is not None and len(df_db) >= max(1, int(datalen * 0.8)) and _db_recent_enough(df_db, scale):
-                    logger.debug("DB 复用 %s scale=%s %d 条", symbol, scale, len(df_db))
-                    return df_db.tail(datalen)
-        except Exception as e:
-            logger.debug("DB 读取跳过 %s: %s", symbol, e)
-
-    # 尝试从缓存获取
+    # 尝试从缓存获取（交易日且是日线数据时，需要检查缓存数据是否包含今天的数据）
     try:
         from src.utils.cache import get_cache
+        from src.utils.trading_hours import is_china_stock_market_open
+        import pandas as pd
 
         cache = get_cache()
         if cache is not None:
@@ -292,7 +269,20 @@ def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optio
                 "fetch_kline_data", ttl_hours=ttl_hours, symbol=symbol, scale=scale, datalen=datalen
             )
             if cached_data is not None:
-                return cached_data
+                # 如果是交易日且是日线数据，检查缓存数据是否包含今天的数据
+                if is_ashare and scale == 240 and is_china_stock_market_open():
+                    today = pd.Timestamp.now().date()
+                    latest_date = cached_data.index.max().date() if not cached_data.empty else None
+                    if latest_date == today:
+                        # 缓存数据包含今天的数据，可以使用
+                        logger.debug("缓存数据包含今天的数据 %s，使用缓存", symbol)
+                        return cached_data
+                    else:
+                        # 缓存数据不包含今天的数据，跳过缓存，执行增量更新
+                        logger.debug("缓存数据不包含今天的数据 %s（最新日期：%s），跳过缓存", symbol, latest_date)
+                else:
+                    # 非交易日或非日线数据，直接使用缓存
+                    return cached_data
     except Exception:
         pass
 
@@ -306,33 +296,49 @@ def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optio
             df = None
     else:
         df = None
-        try:
-            df = fetch_kline_data_from_sina(symbol, scale, datalen)
-        except DataFetchError as e:
-            logger.debug("新浪主接口失败 %s: %s，尝试备用", symbol, e)
-        if df is None or df.empty:
+        if df is None:
             try:
-                df = fetch_kline_data_fallback(symbol, scale, datalen)
+                df = fetch_kline_data_from_sina(symbol, scale, datalen)
             except DataFetchError as e:
-                logger.debug("新浪备用接口失败 %s: %s", symbol, e)
-        if (df is None or df.empty) and symbol.startswith(("sh", "sz")):
-            logger.info("新浪财经接口不可用，尝试其他数据源: %s", symbol)
-            try:
-                from ..a_share_data_sources import AShareDataSources
+                logger.debug("新浪主接口失败 %s: %s，尝试备用", symbol, e)
+            if df is None or df.empty:
+                try:
+                    df = fetch_kline_data_fallback(symbol, scale, datalen)
+                except DataFetchError as e:
+                    logger.debug("新浪备用接口失败 %s: %s", symbol, e)
+            if (df is None or df.empty) and symbol.startswith(("sh", "sz")):
+                logger.info("新浪财经接口不可用，尝试其他数据源: %s", symbol)
+                try:
+                    from ..a_share_data_sources import AShareDataSources
 
-                df = AShareDataSources.get_kline_with_fallback(symbol, scale, datalen)
-            except Exception as e:
-                logger.warning("其他数据源获取失败 %s: %s", symbol, e)
-        if (df is None or df.empty) and scale == 1:
-            logger.info("所有数据源1分钟数据不可用，尝试替代方法: %s", symbol)
-            try:
-                from .hk_stock_fetcher import fetch_alternative_1min_data
+                    df = AShareDataSources.get_kline_with_fallback(symbol, scale, datalen)
+                except Exception as e:
+                    logger.warning("其他数据源获取失败 %s: %s", symbol, e)
+            if (df is None or df.empty) and scale == 1:
+                logger.info("所有数据源1分钟数据不可用，尝试替代方法: %s", symbol)
+                try:
+                    from .hk_stock_fetcher import fetch_alternative_1min_data
 
-                df = fetch_alternative_1min_data(symbol, days=5)
-                if df is not None and not df.empty:
-                    logger.info("替代方法获取到 %s 条1分钟数据", len(df))
-            except Exception as e:
-                logger.warning("替代方法失败: %s", e)
+                    df = fetch_alternative_1min_data(symbol, days=5)
+                    if df is not None and not df.empty:
+                        logger.info("替代方法获取到 %s 条1分钟数据", len(df))
+                except Exception as e:
+                    logger.warning("替代方法失败: %s", e)
+            
+            # 如果是交易日且是日线数据，检查获取到的数据是否包含今天的数据
+            if df is not None and not df.empty and is_ashare and scale == 240:
+                try:
+                    from src.utils.trading_hours import is_china_stock_market_open
+                    import pandas as pd
+                    
+                    if is_china_stock_market_open():
+                        today = pd.Timestamp.now().date()
+                        latest_date = df.index.max().date() if not df.empty else None
+                        if latest_date != today:
+                            logger.warning("今天是交易日，但完整获取的数据不包含今天的数据 %s（最新日期：%s），返回None", symbol, latest_date)
+                            return None
+                except Exception as e:
+                    logger.debug("检查数据日期失败 %s: %s", symbol, e)
 
     # 保存到缓存
     if df is not None and not df.empty:
@@ -351,22 +357,21 @@ def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optio
         except Exception:
             pass
 
-        # 本地 DB 积累（仅 A 股）：只有成功返回的数据才写入数据库
-        if is_ashare and df is not None and not df.empty:
-            try:
-                from src.database import get_stock_db
-
-                db = get_stock_db()
-                if db is not None:
-                    # 获取股票名称（用于元数据）
-                    stock_name = get_name(symbol)
-                    # 使用增强版数据库，带数据验证（只有成功返回的有效数据才写入）
-                    inserted = db.save_kline_data(symbol, scale, df, stock_name=stock_name, validate=True)
-                    if inserted > 0:
-                        logger.debug("DB 写入成功 %s scale=%s %d 条", symbol, scale, inserted)
-                    else:
-                        logger.debug("DB 写入跳过（数据验证失败） %s scale=%s", symbol, scale)
-            except Exception as e:
-                logger.debug("DB 写入跳过 %s: %s", symbol, e)
-
+    # 最终验证：如果是交易日且是日线数据，确保返回的数据包含今天的数据
+    if df is not None and not df.empty and is_ashare and scale == 240:
+        try:
+            from src.utils.trading_hours import is_china_stock_market_open
+            import pandas as pd
+            
+            if is_china_stock_market_open():
+                today = pd.Timestamp.now().date()
+                latest_date = df.index.max().date() if not df.empty else None
+                if latest_date != today:
+                    logger.warning("最终验证失败：今天是交易日，但返回的数据不包含今天的数据 %s（最新日期：%s），返回None", symbol, latest_date)
+                    return None
+                else:
+                    logger.debug("最终验证通过：返回的数据包含今天的数据 %s", symbol)
+        except Exception as e:
+            logger.debug("最终验证异常 %s: %s", symbol, e)
+    
     return df if (df is not None and not df.empty) else None

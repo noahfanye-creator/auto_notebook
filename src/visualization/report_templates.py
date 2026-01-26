@@ -110,15 +110,23 @@ def _build_report_summary(
         macd_status = "多头" if last.get("MACD", 0) > 0 else "空头"
         
         # 使用数据获取时点的最新价格
-        price_text = f"{latest_price:.2f}" if latest_price is not None else f"{last['Close']:.2f}"
+        price_text = (
+            f"{latest_price:.2f}" if latest_price is not None else f"{last['Close']:.2f}"
+        )
         summary_lines.append(
-            f"{stock_name}({stock_code}) 最新价格: {price_text}，趋势: {trend}，RSI: {rsi_status}，MACD: {macd_status}。"
+            f"{stock_name}({stock_code}) 最新价格: {price_text}，趋势: {trend}，"
+            f"RSI: {rsi_status}，MACD: {macd_status}。"
         )
     else:
         if latest_price is not None:
-            summary_lines.append(f"{stock_name}({stock_code}) 最新价格: {latest_price:.2f}，日线数据不足，无法生成完整趋势摘要。")
+            summary_lines.append(
+                f"{stock_name}({stock_code}) 最新价格: {latest_price:.2f}，"
+                "日线数据不足，无法生成完整趋势摘要。"
+            )
         else:
-            summary_lines.append(f"{stock_name}({stock_code}) 数据不足，无法生成核心趋势摘要。")
+            summary_lines.append(
+                f"{stock_name}({stock_code}) 数据不足，无法生成核心趋势摘要。"
+            )
 
     if indices_data:
         market_label = "港股" if stock_code.startswith("HK.") else "A股"
@@ -176,9 +184,13 @@ def _build_parameters_table(
 
     if indices_data:
         index_ranges = [
-            _format_range(info.get("data")) for info in indices_data.values() if info.get("data") is not None
+            _format_range(info.get("data"))
+            for info in indices_data.values()
+            if info.get("data") is not None
         ]
         if index_ranges:
-            table_data.insert(5, ["指数数据范围", f"{len(index_ranges)} 个指数，示例: {index_ranges[0]}"])
+            table_data.insert(
+                5, ["指数数据范围", f"{len(index_ranges)} 个指数，示例: {index_ranges[0]}"]
+            )
 
     return table_data

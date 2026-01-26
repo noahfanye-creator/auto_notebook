@@ -266,13 +266,19 @@ def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optio
             else:
                 ttl_hours = 0.5
             cached_data = cache.get(
-                "fetch_kline_data", ttl_hours=ttl_hours, symbol=symbol, scale=scale, datalen=datalen
+                "fetch_kline_data",
+                ttl_hours=ttl_hours,
+                symbol=symbol,
+                scale=scale,
+                datalen=datalen,
             )
             if cached_data is not None:
                 # 如果是交易日且是日线数据，检查缓存数据是否包含今天的数据
                 if is_ashare and scale == 240 and is_china_stock_market_open():
                     today = pd.Timestamp.now().date()
-                    latest_date = cached_data.index.max().date() if not cached_data.empty else None
+                    latest_date = (
+                        cached_data.index.max().date() if not cached_data.empty else None
+                    )
                     if latest_date == today:
                         # 缓存数据包含今天的数据，可以使用
                         logger.debug("缓存数据包含今天的数据 %s，使用缓存", symbol)
@@ -333,9 +339,15 @@ def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optio
                     
                     if is_china_stock_market_open():
                         today = pd.Timestamp.now().date()
-                        latest_date = df.index.max().date() if not df.empty else None
+                        latest_date = (
+                            df.index.max().date() if not df.empty else None
+                        )
                         if latest_date != today:
-                            logger.warning("今天是交易日，但完整获取的数据不包含今天的数据 %s（最新日期：%s），返回None", symbol, latest_date)
+                            logger.warning(
+                                "今天是交易日，但完整获取的数据不包含今天的数据 %s（最新日期：%s），返回None",
+                                symbol,
+                                latest_date,
+                            )
                             return None
                 except Exception as e:
                     logger.debug("检查数据日期失败 %s: %s", symbol, e)
@@ -353,7 +365,14 @@ def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optio
                     ttl_hours = 1
                 else:
                     ttl_hours = 0.5
-                cache.set("fetch_kline_data", df, ttl_hours=ttl_hours, symbol=symbol, scale=scale, datalen=datalen)
+                cache.set(
+                    "fetch_kline_data",
+                    df,
+                    ttl_hours=ttl_hours,
+                    symbol=symbol,
+                    scale=scale,
+                    datalen=datalen,
+                )
         except Exception:
             pass
 
@@ -365,9 +384,15 @@ def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optio
             
             if is_china_stock_market_open():
                 today = pd.Timestamp.now().date()
-                latest_date = df.index.max().date() if not df.empty else None
+                latest_date = (
+                    df.index.max().date() if not df.empty else None
+                )
                 if latest_date != today:
-                    logger.warning("最终验证失败：今天是交易日，但返回的数据不包含今天的数据 %s（最新日期：%s），返回None", symbol, latest_date)
+                    logger.warning(
+                        "最终验证失败：今天是交易日，但返回的数据不包含今天的数据 %s（最新日期：%s），返回None",
+                        symbol,
+                        latest_date,
+                    )
                     return None
                 else:
                     logger.debug("最终验证通过：返回的数据包含今天的数据 %s", symbol)

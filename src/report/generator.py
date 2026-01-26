@@ -230,9 +230,10 @@ def _process_single_stock(
             if df is not None and len(df) >= 5:
                 create_candle_chart(df, title, os.path.join(temp_dir, f"{key}.png"), max_points=max_points)
 
-        logger.info("\n4️⃣  生成PDF报告...")
+        # 生成报告文件名
         safe_name = re.sub(r'[\\/*?:"<>|]', "_", stock_name)
-        pdf_path = os.path.join(output_folder, f"{safe_name}_{stock_code}_增强分析报告.pdf")
+        file_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        pdf_path = os.path.join(output_folder, f"{safe_name}_{stock_code}_{file_timestamp}.pdf")
         stock_data_map["_meta"] = report_meta
 
         try:

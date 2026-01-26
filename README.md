@@ -136,7 +136,8 @@ stock-analysis-bot/
 
 ## 🔧 GitHub Actions
 
-- **stock_bot.yml**：定时/手动运行分析，生成报告 ZIP，Telegram 推送
+- **stock_bot.yml**：定时/手动运行分析，生成报告 ZIP，Telegram 推送，自动上传 Google Drive。
+  - **Google Drive 配置 (OAuth)**：由于服务账号配额限制，现已切换至 OAuth 认证。请运行 `auth_tool.py` 获取 `GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET`, `GDRIVE_REFRESH_TOKEN` 并配置到 GitHub Secrets。
 - **code-quality.yml**：PR/push 时 black、flake8、mypy、pytest 与覆盖率检查
 
 ## 📝 许可证

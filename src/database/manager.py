@@ -27,8 +27,7 @@ class StockDatabase:
     def _init_tables(self) -> None:
         """初始化数据库表结构"""
         # 表1: K线数据表（增强版：添加时间戳字段）
-        self.conn.execute(
-            """
+        self.conn.execute("""
             CREATE TABLE IF NOT EXISTS kline_by_scale (
                 code TEXT NOT NULL,
                 scale INTEGER NOT NULL,
@@ -42,12 +41,10 @@ class StockDatabase:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (code, scale, date)
             )
-            """
-        )
+            """)
 
         # 表2: 元数据表（跟踪数据状态）
-        self.conn.execute(
-            """
+        self.conn.execute("""
             CREATE TABLE IF NOT EXISTS meta_info (
                 code TEXT NOT NULL,
                 stock_name TEXT,
@@ -60,12 +57,10 @@ class StockDatabase:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (code)
             )
-            """
-        )
+            """)
 
         # 表3: 市场指数数据表
-        self.conn.execute(
-            """
+        self.conn.execute("""
             CREATE TABLE IF NOT EXISTS market_indices (
                 index_code TEXT NOT NULL,
                 index_name TEXT,
@@ -80,8 +75,7 @@ class StockDatabase:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (index_code, scale, date)
             )
-            """
-        )
+            """)
 
         # 创建索引
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_kline_code_scale ON kline_by_scale(code, scale)")

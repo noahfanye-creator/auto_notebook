@@ -67,14 +67,10 @@ def get_name(symbol: str) -> str:
             # 东方财富股票信息接口
             market_prefix = "1." if clean_code.startswith("6") else "0."
             url = (
-                f"https://push2.eastmoney.com/api/qt/stock/get?"
-                f"secid={market_prefix}{clean_code}&fields=f12,f13,f14"
+                f"https://push2.eastmoney.com/api/qt/stock/get?" f"secid={market_prefix}{clean_code}&fields=f12,f13,f14"
             )
             headers = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36"
-                ),
+                "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) " "AppleWebKit/537.36"),
                 "Referer": "https://quote.eastmoney.com/",
             }
 
@@ -90,9 +86,7 @@ def get_name(symbol: str) -> str:
     return symbol
 
 
-def fetch_kline_data_from_sina(
-    symbol: str, scale: int = 240, datalen: int = 100
-) -> Optional[pd.DataFrame]:
+def fetch_kline_data_from_sina(symbol: str, scale: int = 240, datalen: int = 100) -> Optional[pd.DataFrame]:
     """从新浪财经获取K线数据
 
     Args:
@@ -112,10 +106,7 @@ def fetch_kline_data_from_sina(
         # 新浪财经历史数据接口
         # 日线数据
         if scale == 240:
-            url = (
-                "https://quotes.sina.cn/cn/api/openapi.php/"
-                "CN_MarketDataService.getKLineData"
-            )
+            url = "https://quotes.sina.cn/cn/api/openapi.php/" "CN_MarketDataService.getKLineData"
             params = {
                 "symbol": symbol.upper(),
                 "scale": scale,
@@ -124,7 +115,7 @@ def fetch_kline_data_from_sina(
             }
         else:
             # 分钟数据
-            url = "https://quotes.sina.cn/cn/api/openapi.php/StockV2Service.getMinLine"
+            url = "https://quotes.sina.cn/cn/api/openapi.php/" "StockV2Service.getMinLine"
             params = {"symbol": symbol.upper(), "scale": scale, "datalen": datalen}
 
         headers = {
@@ -215,9 +206,7 @@ def fetch_kline_data_from_sina(
         raise DataFetchError(f"从新浪财经获取数据失败 {symbol}: {e}") from e
 
 
-def fetch_kline_data_fallback(
-    symbol: str, scale: int = 240, datalen: int = 100
-) -> Optional[pd.DataFrame]:
+def fetch_kline_data_fallback(symbol: str, scale: int = 240, datalen: int = 100) -> Optional[pd.DataFrame]:
     """新浪K线备用接口（json_v2）"""
     try:
         url = (
@@ -225,12 +214,7 @@ def fetch_kline_data_fallback(
             f"CN_MarketData.getKLineData?symbol={symbol}&scale={scale}"
             f"&ma=no&datalen={datalen}"
         )
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36"
-            )
-        }
+        headers = {"User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " "AppleWebKit/537.36")}
         response = requests.get(url, headers=headers, timeout=20)
         if response.status_code != 200:
             raise DataFetchError(f"新浪备用接口 HTTP 错误: {response.status_code}")
@@ -267,9 +251,7 @@ def fetch_kline_data_fallback(
         raise DataFetchError(f"备用接口获取失败 {symbol} scale={scale}: {e}") from e
 
 
-def fetch_kline_data(
-    symbol: str, scale: int = 240, datalen: int = 100
-) -> Optional[pd.DataFrame]:
+def fetch_kline_data(symbol: str, scale: int = 240, datalen: int = 100) -> Optional[pd.DataFrame]:
     """获取K线数据 - 支持A股和港股（统一入口，自动降级，带缓存；仅从网络获取，不读不写数据库）
 
     Args:
@@ -307,9 +289,7 @@ def fetch_kline_data(
                 # 如果是交易日且是日线数据，检查缓存数据是否包含今天的数据
                 if is_ashare and scale == 240 and is_china_stock_market_open():
                     today = pd.Timestamp.now().date()
-                    latest_date = (
-                        cached_data.index.max().date() if not cached_data.empty else None
-                    )
+                    latest_date = cached_data.index.max().date() if not cached_data.empty else None
                     if latest_date == today:
                         # 缓存数据包含今天的数据，可以使用
                         logger.debug("缓存数据包含今天的数据 %s，使用缓存", symbol)
@@ -352,9 +332,7 @@ def fetch_kline_data(
                 try:
                     from ..a_share_data_sources import AShareDataSources
 
-                    df = AShareDataSources.get_kline_with_fallback(
-                        symbol, scale, datalen
-                    )
+                    df = AShareDataSources.get_kline_with_fallback(symbol, scale, datalen)
                 except Exception as e:
                     logger.warning("其他数据源获取失败 %s: %s", symbol, e)
             if (df is None or df.empty) and scale == 1:
@@ -367,18 +345,16 @@ def fetch_kline_data(
                         logger.info("替代方法获取到 %s 条1分钟数据", len(df))
                 except Exception as e:
                     logger.warning("替代方法失败: %s", e)
-            
+
             # 如果是交易日且是日线数据，检查获取到的数据是否包含今天的数据
             if df is not None and not df.empty and is_ashare and scale == 240:
                 try:
                     from src.utils.trading_hours import is_china_stock_market_open
                     import pandas as pd
-                    
+
                     if is_china_stock_market_open():
                         today = pd.Timestamp.now().date()
-                        latest_date = (
-                            df.index.max().date() if not df.empty else None
-                        )
+                        latest_date = df.index.max().date() if not df.empty else None
                         if latest_date != today:
                             logger.warning(
                                 "今天是交易日，但完整获取的数据不包含今天的数据 %s（最新日期：%s），返回None",
@@ -418,12 +394,10 @@ def fetch_kline_data(
         try:
             from src.utils.trading_hours import is_china_stock_market_open
             import pandas as pd
-            
+
             if is_china_stock_market_open():
                 today = pd.Timestamp.now().date()
-                latest_date = (
-                    df.index.max().date() if not df.empty else None
-                )
+                latest_date = df.index.max().date() if not df.empty else None
                 if latest_date != today:
                     logger.warning(
                         "最终验证失败：今天是交易日，但返回的数据不包含今天的数据 %s（最新日期：%s），返回None",
@@ -435,5 +409,5 @@ def fetch_kline_data(
                     logger.debug("最终验证通过：返回的数据包含今天的数据 %s", symbol)
         except Exception as e:
             logger.debug("最终验证异常 %s: %s", symbol, e)
-    
+
     return df if (df is not None and not df.empty) else None

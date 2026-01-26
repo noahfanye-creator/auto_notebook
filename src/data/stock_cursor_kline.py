@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """从 stock_cursor 库拉取日线/分钟 K 线，供缠论三买测试用。"""
+
 from __future__ import annotations
 
 import os

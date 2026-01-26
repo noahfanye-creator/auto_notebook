@@ -3,7 +3,7 @@ PDF报告模板和辅助函数
 提供报告生成所需的模板和格式化函数
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
 
 
@@ -81,11 +81,11 @@ def _build_report_summary(
     """
     summary_lines = []
     day_df = stock_data_map.get("day")
-    
+
     # 优先使用分钟线数据获取最新价格（数据获取时点的价格）
     latest_price = None
     latest_data = None
-    
+
     # 尝试从1分钟数据获取最新数据
     df_1m = stock_data_map.get("1m")
     if df_1m is not None and not df_1m.empty:
@@ -109,17 +109,11 @@ def _build_report_summary(
         trend = _get_trend_status(last)
         rsi_status = "中性"
         if "RSI" in last:
-            rsi_status = (
-                "超买" if last["RSI"] > 70 else ("超卖" if last["RSI"] < 30 else "中性")
-            )
+            rsi_status = "超买" if last["RSI"] > 70 else ("超卖" if last["RSI"] < 30 else "中性")
         macd_status = "多头" if last.get("MACD", 0) > 0 else "空头"
-        
+
         # 使用数据获取时点的最新价格
-        price_text = (
-            f"{latest_price:.2f}"
-            if latest_price is not None
-            else f"{last['Close']:.2f}"
-        )
+        price_text = f"{latest_price:.2f}" if latest_price is not None else f"{last['Close']:.2f}"
         summary_lines.append(
             f"{stock_name}({stock_code}) 最新价格: {price_text}，趋势: {trend}，"
             f"RSI: {rsi_status}，MACD: {macd_status}。"
@@ -127,29 +121,21 @@ def _build_report_summary(
     else:
         if latest_price is not None:
             summary_lines.append(
-                f"{stock_name}({stock_code}) 最新价格: {latest_price:.2f}，"
-                "日线数据不足，无法生成完整趋势摘要。"
+                f"{stock_name}({stock_code}) 最新价格: {latest_price:.2f}，" "日线数据不足，无法生成完整趋势摘要。"
             )
         else:
-            summary_lines.append(
-                f"{stock_name}({stock_code}) 数据不足，无法生成核心趋势摘要。"
-            )
+            summary_lines.append(f"{stock_name}({stock_code}) 数据不足，无法生成核心趋势摘要。")
 
     if indices_data:
         market_label = "港股" if stock_code.startswith("HK.") else "A股"
-        sector_count = sum(
-            1 for info in indices_data.values() if info.get("type") == "SECTOR"
-        )
+        sector_count = sum(1 for info in indices_data.values() if info.get("type") == "SECTOR")
         market_count = len(indices_data) - sector_count
         if sector_count > 0:
             summary_lines.append(
-                f"本次报告包含 {market_count} 个{market_label}主要指数和 "
-                f"{sector_count} 个行业板块指数的综合分析。"
+                f"本次报告包含 {market_count} 个{market_label}主要指数和 " f"{sector_count} 个行业板块指数的综合分析。"
             )
         else:
-            summary_lines.append(
-                f"本次报告包含 {market_count} 个{market_label}主要指数的综合分析。"
-            )
+            summary_lines.append(f"本次报告包含 {market_count} 个{market_label}主要指数的综合分析。")
 
     return summary_lines
 
@@ -177,10 +163,7 @@ def _build_parameters_table(
     kdj = indicator_params.get("kdj", "")
     wr = indicator_params.get("wr", "")
     vol_ma = ",".join(map(str, indicator_params.get("volume_ma", [])))
-    indicator_text = (
-        f"MA:{ma_windows}; MACD:{macd}; RSI:{rsi}; "
-        f"BB:{boll}; KDJ:{kdj}; WR:{wr}; VOL_MA:{vol_ma}"
-    )
+    indicator_text = f"MA:{ma_windows}; MACD:{macd}; RSI:{rsi}; " f"BB:{boll}; KDJ:{kdj}; WR:{wr}; VOL_MA:{vol_ma}"
 
     cutoff = meta.get("cutoff_notes") or {}
     table_data = [
@@ -200,13 +183,9 @@ def _build_parameters_table(
 
     if indices_data:
         index_ranges = [
-            _format_range(info.get("data"))
-            for info in indices_data.values()
-            if info.get("data") is not None
+            _format_range(info.get("data")) for info in indices_data.values() if info.get("data") is not None
         ]
         if index_ranges:
-            table_data.insert(
-                5, ["指数数据范围", f"{len(index_ranges)} 个指数，示例: {index_ranges[0]}"]
-            )
+            table_data.insert(5, ["指数数据范围", f"{len(index_ranges)} 个指数，示例: {index_ranges[0]}"])
 
     return table_data

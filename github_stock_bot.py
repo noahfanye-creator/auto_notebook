@@ -3,6 +3,7 @@
 股票分析报告生成器 - 主程序
 提供命令行接口，调用各模块完成股票分析报告生成
 """
+
 import os
 import sys
 from datetime import datetime

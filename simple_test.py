@@ -16,16 +16,16 @@ print("="*60)
 print("\n🧪 测试 1: 获取日线数据")
 print("-"*60)
 try:
-    from src.data.fetcher import fetch_stock_data, get_stock_name
+    from src.data.fetchers import fetch_kline_data, get_name
     
     test_code = "sh600519"  # 贵州茅台
     print(f"测试股票: {test_code}")
     
-    name = get_stock_name(test_code)
+    name = get_name(test_code)
     print(f"股票名称: {name}")
     
     print("正在获取日线数据...")
-    df = fetch_stock_data(test_code, period='1d', count=60)
+    df = fetch_kline_data(test_code, scale=240, datalen=60)
     
     if df is not None and not df.empty:
         print(f"✅ 成功获取 {len(df)} 条数据")

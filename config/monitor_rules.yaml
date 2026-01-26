@@ -28,3 +28,23 @@
   indicator: Close
   name: 腾讯控股-跌破MA60预警
   threshold: MA60
+- code: sh688630
+  condition: '>'
+  indicator: Close
+  name: 芯碁微装-不跌破前期低点
+  threshold: 178
+- code: sh688630
+  condition: '>='
+  indicator: Close
+  name: 芯碁微装-回落企稳区间下限
+  threshold: 179
+- code: sh688630
+  condition: '<='
+  indicator: Close
+  name: 芯碁微装-回落企稳区间上限
+  threshold: 180
+- code: sh688630
+  condition: '>'
+  indicator: MACD
+  name: 芯碁微装-MACD转强
+  threshold: 0

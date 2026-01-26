@@ -24,15 +24,25 @@ name: 股票分析机器人 🤖
 #    示例: {"type":"service_account","project_id":"..."}
 #
 # 4. GDRIVE_FOLDER_ID
-#    说明: Google Drive 目标文件夹 ID（必须为「协作云端硬盘」内文件夹）
+#    说明: Google Drive 目标文件夹 ID（支持协作云端硬盘或个人文件夹）
 #    获取方式: 在 Drive 中打开该文件夹，从 URL 的 folders/xxx 提取 ID
 #    示例: 1a2b3c4d5e6f7g8h9i0j
 #
+# 5. GDRIVE_OWNER_EMAIL（可选，推荐设置）
+#    说明: 个人 Google 账号邮箱，用于接收上传文件的所有权
+#    适用场景: 使用个人文件夹（非协作云端硬盘）时，上传后自动添加此邮箱为编辑者
+#    获取方式: 你的 Google 账号邮箱
+#    示例: noahfanye@gmail.com
+#
 # 注意事项:
 # - GDRIVE_CREDENTIALS 存原始 JSON，不要 base64 编码
-# - 服务账号无存储配额，须用「协作云端硬盘」(Shared Drive)：新建协作云端硬盘 →
-#   在盘内建文件夹 → 右键该文件夹「管理成员」添加 client_email 为「内容管理员」→
-#   用该文件夹 ID 作为 GDRIVE_FOLDER_ID。勿用「我的云端硬盘」普通文件夹，否则 403。
+# - 文件夹配置（二选一）：
+#   方案1 - 协作云端硬盘（推荐，无存储限制）：
+#     新建协作云端硬盘 → 在盘内建文件夹 → 管理成员添加 client_email 为「内容管理员」
+#   → 用该文件夹 ID 作为 GDRIVE_FOLDER_ID
+#   方案2 - 个人文件夹（需设置 GDRIVE_OWNER_EMAIL）：
+#     在「我的云端硬盘」创建文件夹 → 共享给服务账号为「编辑者」
+#   → 设置 GDRIVE_OWNER_EMAIL 为你的个人邮箱 → 上传后会自动添加你为编辑者
 # - 确保已启用 Google Drive API
 # ============================================================================
 
@@ -228,6 +238,7 @@ jobs:
       env:
         GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
         GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        GDRIVE_OWNER_EMAIL: ${{ secrets.GDRIVE_OWNER_EMAIL }}
         REPORT_DIR: ${{ env.REPORT_DIR }}
       run: |
         pip install -q google-auth google-api-python-client
@@ -242,6 +253,7 @@ jobs:
         report_dir = os.environ["REPORT_DIR"]
         raw = os.environ.get("GDRIVE_CREDENTIALS", "").strip()
         folder_id = os.environ.get("GDRIVE_FOLDER_ID", "").strip()
+        owner_email = os.environ.get("GDRIVE_OWNER_EMAIL", "").strip()
         if not raw or not folder_id:
             raise SystemExit("缺少 GDRIVE_CREDENTIALS 或 GDRIVE_FOLDER_ID")
 
@@ -250,9 +262,10 @@ jobs:
         drive = build("drive", "v3", credentials=creds)
         sa_email = creds_dict.get("client_email", "未知")
 
-        # 上传前校验：文件夹是否存在且已与服务账号共享（支持协作云端硬盘）
+        # 上传前校验：文件夹是否存在且已与服务账号共享（支持协作云端硬盘和个人文件夹）
         try:
-            drive.files().get(fileId=folder_id, fields="id,name", supportsAllDrives=True).execute()
+            folder_info = drive.files().get(fileId=folder_id, fields="id,name", supportsAllDrives=True).execute()
+            print(f"📁 目标文件夹: {folder_info.get('name', folder_id)}")
         except Exception as e:
             err = str(e)
             if "404" in err or "notFound" in err or "not found" in err.lower():
@@ -271,12 +284,50 @@ jobs:
 
         for path in pdfs:
             name = os.path.basename(path)
+            # 确保 parents 和 supportsAllDrives 正确设置
             meta = {"name": name, "parents": [folder_id]}
             assert "parents" in meta and len(meta["parents"]) > 0, "上传须指定 parents（目标文件夹 ID）"
             media = MediaFileUpload(path, mimetype="application/pdf", resumable=True)
             try:
-                f = drive.files().create(body=meta, media_body=media, fields="id,name", supportsAllDrives=True).execute()
-                print(f"  ✅ {name} -> {f.get('id')}")
+                # 上传文件（使用 supportsAllDrives=True 支持协作云端硬盘和个人文件夹）
+                f = drive.files().create(body=meta, media_body=media, fields="id,name,owners", supportsAllDrives=True).execute()
+                file_id = f.get("id")
+                print(f"  ✅ 上传成功: {name} -> {file_id}")
+                
+                # 如果指定了个人邮箱，尝试将文件所有权转移给个人账号
+                if owner_email:
+                    try:
+                        # 先添加个人邮箱为编辑者
+                        permission = {
+                            "type": "user",
+                            "role": "writer",
+                            "emailAddress": owner_email
+                        }
+                        drive.permissions().create(
+                            fileId=file_id,
+                            body=permission,
+                            fields="id",
+                            supportsAllDrives=True
+                        ).execute()
+                        print(f"    ✓ 已添加 {owner_email} 为编辑者")
+                        
+                        # 尝试转移所有权（需要服务账号有 transferOwnership 权限）
+                        try:
+                            drive.permissions().update(
+                                fileId=file_id,
+                                permissionId="me",
+                                body={"role": "owner"},
+                                transferOwnership=True,
+                                supportsAllDrives=True
+                            ).execute()
+                            print(f"    ✓ 已尝试转移所有权给 {owner_email}")
+                        except Exception as transfer_err:
+                            # 转移所有权可能失败（服务账号可能没有权限），但不影响文件上传
+                            print(f"    ⚠️  所有权转移失败（不影响使用）: {transfer_err}")
+                    except Exception as perm_err:
+                        # 权限设置失败不影响文件上传，仅记录警告
+                        print(f"    ⚠️  权限设置失败（文件已上传）: {perm_err}")
+                
             except HttpError as e:
                 if e.resp.status == 404 and "fileId" in str(e):
                     raise SystemExit(
@@ -284,12 +335,25 @@ jobs:
                         "1) GDRIVE_FOLDER_ID 正确；2) 已将文件夹共享给服务账号：\n  "
                         f"{sa_email}\n（右键文件夹 → 共享 → 添加上述邮箱为编辑者）"
                     ) from e
-                if e.resp.status == 403 and ("storageQuotaExceeded" in str(e) or "storage quota" in str(e).lower()):
+                if e.resp.status == 403:
+                    err_str = str(e)
+                    if "storageQuotaExceeded" in err_str or "storage quota" in err_str.lower():
+                        raise SystemExit(
+                            "上传失败：服务账号无存储配额 (403)。\n"
+                            "解决方案（二选一）：\n"
+                            "方案1 - 使用协作云端硬盘：\n"
+                            "  1) 新建协作云端硬盘；2) 在盘内建文件夹；3) 管理成员添加 "
+                            f"{sa_email} 为「内容管理员」；4) 用该文件夹 ID 作为 GDRIVE_FOLDER_ID\n"
+                            "方案2 - 使用个人文件夹（已自动尝试转移所有权）：\n"
+                            "  1) 确保文件夹已共享给服务账号为「编辑者」；\n"
+                            "  2) 在 GitHub Secrets 中设置 GDRIVE_OWNER_EMAIL 为你的个人邮箱（如 noahfanye@gmail.com）；\n"
+                            "  3) 文件上传后会自动添加你的邮箱为编辑者，你可以在 Drive 中手动转移所有权"
+                        ) from e
                     raise SystemExit(
-                        "上传失败：服务账号无存储配额 (403)。请使用「协作云端硬盘」：\n"
-                        "1) 新建协作云端硬盘；2) 在盘内建文件夹；3) 管理成员添加 "
-                        f"{sa_email} 为「内容管理员」；4) 用该文件夹 ID 作为 GDRIVE_FOLDER_ID"
+                        f"上传失败：权限不足 (403)。请确认：\n"
+                        f"1) 文件夹已共享给服务账号 {sa_email} 为「编辑者」；\n"
+                        f"2) 如果使用个人文件夹，请在 Secrets 中设置 GDRIVE_OWNER_EMAIL"
                     ) from e
                 raise
-        print(f"共上传 {len(pdfs)} 个文件")
+        print(f"\n📊 共上传 {len(pdfs)} 个文件")
         PY

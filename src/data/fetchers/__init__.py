@@ -7,7 +7,15 @@ from .a_share_fetcher import get_name, fetch_kline_data_from_sina, fetch_kline_d
 from .hk_stock_fetcher import fetch_kline_data_from_hk_sources, fetch_alternative_1min_data
 from .sector_fetcher import load_sector_index_map, get_sector_index_name, get_sector_indices_data
 from .market_indices_fetcher import get_market_indices_data
-from .data_utils import normalize_beijing_time, filter_trading_hours, is_intraday_data, format_beijing_time
+from .data_utils import (
+    normalize_beijing_time,
+    filter_trading_hours,
+    is_intraday_data,
+    format_beijing_time,
+    trim_to_as_of,
+    is_last_bar_incomplete,
+    fill_last_bar,
+)
 
 __all__ = [
     # A股数据获取
@@ -29,4 +37,7 @@ __all__ = [
     "filter_trading_hours",
     "is_intraday_data",
     "format_beijing_time",
+    "trim_to_as_of",
+    "is_last_bar_incomplete",
+    "fill_last_bar",
 ]

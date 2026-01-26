@@ -93,15 +93,31 @@ def create_pdf_with_market_analysis(
         story.append(Paragraph(f"({stock_code})", subtitle_style))
         story.append(Spacer(1, 20))
 
+        # 封面最新价、涨跌幅：均按报告生成/数据获取时点（as_of）的数据，非完整日线
         day_df = stock_data_map.get("day")
-        if day_df is not None and len(day_df) >= 2:
-            last = day_df.iloc[-1]
-            prev = day_df.iloc[-2]
-            latest_price = last.get("Close", 0)
-            prev_close = prev.get("Close", latest_price)
+        latest_price = None
+        data_time = None
+        prev_close = None
+
+        # 优先用 1m -> 5m -> day 最后一条的 Close 作为最新价（数据已按 as_of 裁剪）
+        df_1m = stock_data_map.get("1m")
+        if df_1m is not None and not df_1m.empty:
+            latest_price = df_1m.iloc[-1].get("Close", 0)
+            data_time = format_beijing_time(df_1m.index[-1])
+        else:
+            df_5m = stock_data_map.get("5m")
+            if df_5m is not None and not df_5m.empty:
+                latest_price = df_5m.iloc[-1].get("Close", 0)
+                data_time = format_beijing_time(df_5m.index[-1])
+            elif day_df is not None and not day_df.empty:
+                latest_price = day_df.iloc[-1].get("Close", 0)
+                data_time = format_beijing_time(day_df.index[-1])
+
+        # 涨跌幅：相对于前一日收盘，均取自 as_of 时点的日线
+        if latest_price is not None and day_df is not None and len(day_df) >= 2:
+            prev_close = day_df.iloc[-2].get("Close", latest_price)
             change = latest_price - prev_close
             change_percent = (change / prev_close * 100) if prev_close else 0
-            data_time = format_beijing_time(day_df.index[-1])
 
             story.append(Paragraph(f"最新价格: {latest_price:.2f}", price_style))
             if change >= 0:
@@ -111,12 +127,20 @@ def create_pdf_with_market_analysis(
                 change_style.textColor = colors.green
                 change_text = f"涨跌幅: {change:.2f} ({change_percent:.2f}%)"
             story.append(Paragraph(change_text, change_style))
-            story.append(Paragraph(f"数据时间: {data_time}", normal_style))
+            if data_time:
+                story.append(Paragraph(f"数据时间: {data_time}", normal_style))
+        elif latest_price is not None:
+            story.append(Paragraph(f"最新价格: {latest_price:.2f}", price_style))
+            if data_time:
+                story.append(Paragraph(f"数据时间: {data_time}", normal_style))
         else:
             story.append(Paragraph("最新价格数据获取中...", normal_style))
 
         story.append(Spacer(1, 10))
-        story.append(Paragraph(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
+        gen_time = (stock_data_map.get("_meta") or {}).get("generated_at")
+        if not gen_time:
+            gen_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        story.append(Paragraph(f"生成时间: {gen_time}", normal_style))
         story.append(Spacer(1, 15))
 
         # 结构化摘要与参数信息（移到第一页）
@@ -497,11 +521,19 @@ def create_pdf_with_market_analysis(
                 ("1分钟级别分析", "1m"),
             ]
 
+            meta_cutoff = (stock_data_map.get("_meta") or {}).get("cutoff_notes") or {}
             for cn_name, key in periods:
                 df = stock_data_map.get(key)
 
                 story.append(Paragraph(cn_name, subtitle_style))
                 story.append(Spacer(1, 10))
+                cutoff_note = meta_cutoff.get(key)
+                if cutoff_note:
+                    note_style = ParagraphStyle(
+                        name="CutoffNote", parent=normal_style, fontSize=9, textColor=colors.grey
+                    )
+                    story.append(Paragraph(cutoff_note, note_style))
+                    story.append(Spacer(1, 4))
 
                 if df is not None and not df.empty and len(df) >= 3:
                     try:

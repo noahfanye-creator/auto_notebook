@@ -40,7 +40,7 @@ class TestDataFetchers:
         """测试K线数据获取（基础功能）"""
         # Mock 市场状态为非交易日，避免日期检查
         mock_market_open.return_value = False
-        
+
         # 模拟返回数据
         mock_df = pd.DataFrame(
             {

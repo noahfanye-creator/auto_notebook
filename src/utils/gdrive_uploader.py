@@ -8,6 +8,7 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 def upload_to_gdrive(report_dir: str):
     """
     将生成的 PDF 报告上传到 Google Drive
@@ -29,9 +30,9 @@ def upload_to_gdrive(report_dir: str):
             token_uri="https://oauth2.googleapis.com/token",
             client_id=client_id,
             client_secret=client_secret,
-            scopes=["https://www.googleapis.com/auth/drive"]
+            scopes=["https://www.googleapis.com/auth/drive"],
         )
-        
+
         drive = build("drive", "v3", credentials=creds)
 
         # 校验文件夹
@@ -52,16 +53,20 @@ def upload_to_gdrive(report_dir: str):
             meta = {"name": name, "parents": [folder_id]}
             media = MediaFileUpload(path, mimetype="application/pdf", resumable=True)
             try:
-                f = drive.files().create(
-                    body=meta,
-                    media_body=media,
-                    fields="id,name",
-                    supportsAllDrives=True,
-                ).execute()
+                f = (
+                    drive.files()
+                    .create(
+                        body=meta,
+                        media_body=media,
+                        fields="id,name",
+                        supportsAllDrives=True,
+                    )
+                    .execute()
+                )
                 logger.info(f"✅ 上传成功: {name} -> {f.get('id')}")
             except HttpError as e:
                 logger.error(f"❌ 上传失败: {name} (HTTP {e.resp.status})")
-                
+
         logger.info(f"📊 共上传 {len(pdfs)} 个文件到 Google Drive")
 
     except Exception as e:

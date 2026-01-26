@@ -163,33 +163,35 @@ def main(sector_input=None):
     # 发送 Telegram 通知
     logger.info("\n📱 正在发送 Telegram 通知...")
     import glob
+
     pdf_files = sorted(glob.glob(os.path.join(output_dir, "*.pdf")))
-    
+
     if pdf_files and os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID"):
         import requests
+
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         success_count = 0
-        
+
         # 发送开始通知
         send_telegram_msg(f"📊 开始生成股票分析报告\n\n共 {len(pdf_files)} 个报告")
-        
+
         # 发送每个 PDF 文件
         for pdf_file in pdf_files:
             filename = os.path.basename(pdf_file)
             file_size_mb = os.path.getsize(pdf_file) / (1024 * 1024)
-            
+
             if file_size_mb > 50:
                 logger.warning(f"⚠️  跳过文件 {filename} (大小: {file_size_mb:.1f}MB，超过50MB限制)")
                 continue
-            
+
             try:
-                with open(pdf_file, 'rb') as f:
+                with open(pdf_file, "rb") as f:
                     response = requests.post(
                         f"https://api.telegram.org/bot{token}/sendDocument",
                         data={"chat_id": chat_id},
                         files={"document": (filename, f, "application/pdf")},
-                        timeout=30
+                        timeout=30,
                     )
                     response.raise_for_status()
                     if response.json().get("ok"):
@@ -199,7 +201,7 @@ def main(sector_input=None):
                         logger.error(f"❌ Telegram 发送失败: {filename}")
             except Exception as e:
                 logger.error(f"❌ 发送 {filename} 到 Telegram 出错: {e}")
-        
+
         # 发送完成通知
         if success_count > 0:
             send_telegram_msg(f"✅ 股票分析报告推送完成\n\n成功: {success_count}/{len(pdf_files)}")

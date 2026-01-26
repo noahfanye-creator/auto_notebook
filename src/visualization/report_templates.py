@@ -147,13 +147,17 @@ def _build_report_summary(
                 f"{sector_count} 个行业板块指数的综合分析。"
             )
         else:
-            summary_lines.append(f"本次报告包含 {market_count} 个{market_label}主要指数的综合分析。")
+            summary_lines.append(
+                f"本次报告包含 {market_count} 个{market_label}主要指数的综合分析。"
+            )
 
     return summary_lines
 
 
 def _build_parameters_table(
-    meta: Dict[str, Any], stock_data_map: Dict[str, Any], indices_data: Dict[str, Any]
+    meta: Dict[str, Any],
+    stock_data_map: Dict[str, Any],
+    indices_data: Dict[str, Any],
 ) -> List[List[str]]:
     """生成参数与数据范围表格
 
@@ -166,14 +170,16 @@ def _build_parameters_table(
         List[List[str]]: 表格数据（二维列表）
     """
     indicator_params = meta.get("indicator_params", {})
+    ma_windows = ",".join(map(str, indicator_params.get("ma_windows", [])))
+    macd = "/".join(map(str, indicator_params.get("macd", [])))
+    rsi = indicator_params.get("rsi", "")
+    boll = indicator_params.get("boll", "")
+    kdj = indicator_params.get("kdj", "")
+    wr = indicator_params.get("wr", "")
+    vol_ma = ",".join(map(str, indicator_params.get("volume_ma", [])))
     indicator_text = (
-        f"MA:{','.join(map(str, indicator_params.get('ma_windows', [])))}; "
-        f"MACD:{'/'.join(map(str, indicator_params.get('macd', [])))}; "
-        f"RSI:{indicator_params.get('rsi', '')}; "
-        f"BB:{indicator_params.get('boll', '')}; "
-        f"KDJ:{indicator_params.get('kdj', '')}; "
-        f"WR:{indicator_params.get('wr', '')}; "
-        f"VOL_MA:{','.join(map(str, indicator_params.get('volume_ma', [])))}"
+        f"MA:{ma_windows}; MACD:{macd}; RSI:{rsi}; "
+        f"BB:{boll}; KDJ:{kdj}; WR:{wr}; VOL_MA:{vol_ma}"
     )
 
     cutoff = meta.get("cutoff_notes") or {}

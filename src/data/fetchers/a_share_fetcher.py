@@ -67,10 +67,14 @@ def get_name(symbol: str) -> str:
             # 东方财富股票信息接口
             market_prefix = "1." if clean_code.startswith("6") else "0."
             url = (
-                f"https://push2.eastmoney.com/api/qt/stock/get?" f"secid={market_prefix}{clean_code}&fields=f12,f13,f14"
+                f"https://push2.eastmoney.com/api/qt/stock/get?"
+                f"secid={market_prefix}{clean_code}&fields=f12,f13,f14"
             )
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36"
+                ),
                 "Referer": "https://quote.eastmoney.com/",
             }
 
@@ -108,8 +112,16 @@ def fetch_kline_data_from_sina(
         # 新浪财经历史数据接口
         # 日线数据
         if scale == 240:
-            url = "https://quotes.sina.cn/cn/api/openapi.php/CN_MarketDataService.getKLineData"
-            params = {"symbol": symbol.upper(), "scale": scale, "datalen": datalen, "ma": "no"}
+            url = (
+                "https://quotes.sina.cn/cn/api/openapi.php/"
+                "CN_MarketDataService.getKLineData"
+            )
+            params = {
+                "symbol": symbol.upper(),
+                "scale": scale,
+                "datalen": datalen,
+                "ma": "no",
+            }
         else:
             # 分钟数据
             url = "https://quotes.sina.cn/cn/api/openapi.php/StockV2Service.getMinLine"
@@ -210,9 +222,15 @@ def fetch_kline_data_fallback(
     try:
         url = (
             "http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
-            f"CN_MarketData.getKLineData?symbol={symbol}&scale={scale}&ma=no&datalen={datalen}"
+            f"CN_MarketData.getKLineData?symbol={symbol}&scale={scale}"
+            f"&ma=no&datalen={datalen}"
         )
-        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36"
+            )
+        }
         response = requests.get(url, headers=headers, timeout=20)
         if response.status_code != 200:
             raise DataFetchError(f"新浪备用接口 HTTP 错误: {response.status_code}")
@@ -223,7 +241,14 @@ def fetch_kline_data_fallback(
 
         df = pd.DataFrame(data)
         df.rename(
-            columns={"day": "Date", "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"},
+            columns={
+                "day": "Date",
+                "open": "Open",
+                "high": "High",
+                "low": "Low",
+                "close": "Close",
+                "volume": "Volume",
+            },
             inplace=True,
         )
 
@@ -291,7 +316,11 @@ def fetch_kline_data(
                         return cached_data
                     else:
                         # 缓存数据不包含今天的数据，跳过缓存，执行增量更新
-                        logger.debug("缓存数据不包含今天的数据 %s（最新日期：%s），跳过缓存", symbol, latest_date)
+                        logger.debug(
+                            "缓存数据不包含今天的数据 %s（最新日期：%s），跳过缓存",
+                            symbol,
+                            latest_date,
+                        )
                 else:
                     # 非交易日或非日线数据，直接使用缓存
                     return cached_data
@@ -323,7 +352,9 @@ def fetch_kline_data(
                 try:
                     from ..a_share_data_sources import AShareDataSources
 
-                    df = AShareDataSources.get_kline_with_fallback(symbol, scale, datalen)
+                    df = AShareDataSources.get_kline_with_fallback(
+                        symbol, scale, datalen
+                    )
                 except Exception as e:
                     logger.warning("其他数据源获取失败 %s: %s", symbol, e)
             if (df is None or df.empty) and scale == 1:

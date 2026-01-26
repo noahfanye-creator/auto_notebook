@@ -24,13 +24,15 @@ name: 股票分析机器人 🤖
 #    示例: {"type":"service_account","project_id":"..."}
 #
 # 4. GDRIVE_FOLDER_ID
-#    说明: Google Drive 目标文件夹 ID
-#    获取方式: 在 Google Drive 中打开目标文件夹，从URL中提取ID
+#    说明: Google Drive 目标文件夹 ID（必须为「协作云端硬盘」内文件夹）
+#    获取方式: 在 Drive 中打开该文件夹，从 URL 的 folders/xxx 提取 ID
 #    示例: 1a2b3c4d5e6f7g8h9i0j
 #
 # 注意事项:
 # - GDRIVE_CREDENTIALS 存原始 JSON，不要 base64 编码
-# - Google Drive 文件夹需与服务账号邮箱共享（在文件夹设置中）
+# - 服务账号无存储配额，须用「协作云端硬盘」(Shared Drive)：新建协作云端硬盘 →
+#   在盘内建文件夹 → 右键该文件夹「管理成员」添加 client_email 为「内容管理员」→
+#   用该文件夹 ID 作为 GDRIVE_FOLDER_ID。勿用「我的云端硬盘」普通文件夹，否则 403。
 # - 确保已启用 Google Drive API
 # ============================================================================
 
@@ -78,7 +80,10 @@ jobs:
       id: run_analysis
       timeout-minutes: 25
       continue-on-error: true
+      env:
+        DATABASE_ENABLED: "false"
       run: |
+        # 临时禁用数据库：报告只用接口实时数据，不读不写本地 DB
         export TZ='Asia/Shanghai'
         # 记录运行开始时间
         export RUN_START_TIME=$(date +%s)
@@ -243,16 +248,48 @@ jobs:
         creds_dict = json.loads(raw)
         creds = Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive"])
         drive = build("drive", "v3", credentials=creds)
+        sa_email = creds_dict.get("client_email", "未知")
+
+        # 上传前校验：文件夹是否存在且已与服务账号共享（支持协作云端硬盘）
+        try:
+            drive.files().get(fileId=folder_id, fields="id,name", supportsAllDrives=True).execute()
+        except Exception as e:
+            err = str(e)
+            if "404" in err or "notFound" in err or "not found" in err.lower():
+                raise SystemExit(
+                    "Google Drive 文件夹不存在或未与服务账号共享。\n"
+                    "请：1) 确认 GDRIVE_FOLDER_ID 正确；2) 在 Drive 中右键该文件夹 → 共享 → "
+                    f"添加此邮箱并设为「编辑者」：\n  {sa_email}"
+                ) from e
+            raise
 
         pdfs = sorted(glob.glob(os.path.join(report_dir, "*.pdf")))
         if not pdfs:
             raise SystemExit("未找到 PDF 文件")
 
+        from googleapiclient.errors import HttpError
+
         for path in pdfs:
             name = os.path.basename(path)
             meta = {"name": name, "parents": [folder_id]}
+            assert "parents" in meta and len(meta["parents"]) > 0, "上传须指定 parents（目标文件夹 ID）"
             media = MediaFileUpload(path, mimetype="application/pdf", resumable=True)
-            f = drive.files().create(body=meta, media_body=media, fields="id,name").execute()
-            print(f"  ✅ {name} -> {f.get('id')}")
+            try:
+                f = drive.files().create(body=meta, media_body=media, fields="id,name", supportsAllDrives=True).execute()
+                print(f"  ✅ {name} -> {f.get('id')}")
+            except HttpError as e:
+                if e.resp.status == 404 and "fileId" in str(e):
+                    raise SystemExit(
+                        "上传失败：目标文件夹不可访问 (404)。请确认：\n"
+                        "1) GDRIVE_FOLDER_ID 正确；2) 已将文件夹共享给服务账号：\n  "
+                        f"{sa_email}\n（右键文件夹 → 共享 → 添加上述邮箱为编辑者）"
+                    ) from e
+                if e.resp.status == 403 and ("storageQuotaExceeded" in str(e) or "storage quota" in str(e).lower()):
+                    raise SystemExit(
+                        "上传失败：服务账号无存储配额 (403)。请使用「协作云端硬盘」：\n"
+                        "1) 新建协作云端硬盘；2) 在盘内建文件夹；3) 管理成员添加 "
+                        f"{sa_email} 为「内容管理员」；4) 用该文件夹 ID 作为 GDRIVE_FOLDER_ID"
+                    ) from e
+                raise
         print(f"共上传 {len(pdfs)} 个文件")
         PY

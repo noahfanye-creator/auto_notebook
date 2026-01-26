@@ -101,6 +101,13 @@ class Config:
                 self._config["logging"] = {}
             self._config["logging"]["level"] = env_log_level
 
+        # 支持通过环境变量临时禁用数据库（如 DATABASE_ENABLED=0 或 false）
+        env_db = os.getenv("DATABASE_ENABLED", "").strip().lower()
+        if env_db in ("0", "false", "no", "off"):
+            if "database" not in self._config:
+                self._config["database"] = {}
+            self._config["database"]["enabled"] = False
+
     def load(self) -> Dict[str, Any]:
         """加载配置"""
         return self._load_config_file()

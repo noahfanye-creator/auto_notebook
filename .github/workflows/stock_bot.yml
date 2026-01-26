@@ -16,15 +16,12 @@ name: 股票分析机器人 🤖
 #    示例: 123456789
 #
 # 3. GDRIVE_CREDENTIALS
-#    说明: Google Drive 服务账号 JSON 凭证，必须是 base64 编码后的整段字符串（不能存原始 JSON）
+#    说明: Google Drive 服务账号 JSON 凭证，存原始 JSON 全文（勿 base64）
 #    获取方式:
 #       a) 在 Google Cloud Console 创建服务账号，下载 JSON 密钥文件
-#       b) 在终端执行编码（任选其一，输出为单行无换行）:
-#          Linux:   base64 -w 0 credentials.json
-#          macOS:   base64 -i credentials.json | tr -d '\n'
-#       c) 将完整输出粘贴到 GDRIVE_CREDENTIALS，不要加引号、不要换行
-#    若报错 "illegal base64 data at input byte 0"，说明存的是原始 JSON，请按上述步骤重新 base64 后保存
-#    示例: eyJ0eXBlIjoic2VydmljZV9hY2NvdW50Ii...
+#       b) 用编辑器打开 credentials.json，复制整个内容
+#       c) 粘贴到 GDRIVE_CREDENTIALS，保持合法 JSON（可含换行）
+#    示例: {"type":"service_account","project_id":"..."}
 #
 # 4. GDRIVE_FOLDER_ID
 #    说明: Google Drive 目标文件夹 ID
@@ -32,9 +29,9 @@ name: 股票分析机器人 🤖
 #    示例: 1a2b3c4d5e6f7g8h9i0j
 #
 # 注意事项:
-# - GDRIVE_CREDENTIALS 必须是 base64 编码的完整 JSON 内容
-# - Google Drive 文件夹需要与服务账号邮箱共享（在文件夹设置中）
-# - 确保服务账号已启用 Google Drive API
+# - GDRIVE_CREDENTIALS 存原始 JSON，不要 base64 编码
+# - Google Drive 文件夹需与服务账号邮箱共享（在文件夹设置中）
+# - 确保已启用 Google Drive API
 # ============================================================================
 
 on:
@@ -223,8 +220,39 @@ jobs:
 
     - name: 上传报告到 Google Drive 📁
       if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0
-      uses: adityak74/google-drive-upload-git-action@main
-      with:
-        filename: ${{ env.REPORT_DIR }}/*.pdf
-        credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
-        folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
+      env:
+        GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+        GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        REPORT_DIR: ${{ env.REPORT_DIR }}
+      run: |
+        pip install -q google-auth google-api-python-client
+        python - << 'PY'
+        import os
+        import json
+        import glob
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaFileUpload
+
+        report_dir = os.environ["REPORT_DIR"]
+        raw = os.environ.get("GDRIVE_CREDENTIALS", "").strip()
+        folder_id = os.environ.get("GDRIVE_FOLDER_ID", "").strip()
+        if not raw or not folder_id:
+            raise SystemExit("缺少 GDRIVE_CREDENTIALS 或 GDRIVE_FOLDER_ID")
+
+        creds_dict = json.loads(raw)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive"])
+        drive = build("drive", "v3", credentials=creds)
+
+        pdfs = sorted(glob.glob(os.path.join(report_dir, "*.pdf")))
+        if not pdfs:
+            raise SystemExit("未找到 PDF 文件")
+
+        for path in pdfs:
+            name = os.path.basename(path)
+            meta = {"name": name, "parents": [folder_id]}
+            media = MediaFileUpload(path, mimetype="application/pdf", resumable=True)
+            f = drive.files().create(body=meta, media_body=media, fields="id,name").execute()
+            print(f"  ✅ {name} -> {f.get('id')}")
+        print(f"共上传 {len(pdfs)} 个文件")
+        PY

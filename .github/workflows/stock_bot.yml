@@ -1,5 +1,39 @@
 name: 股票分析机器人 🤖
 
+# ============================================================================
+# GitHub Repository Secrets 配置说明
+# ============================================================================
+# 请在 GitHub Repository Settings > Secrets and variables > Actions 中配置以下变量：
+#
+# 1. TELEGRAM_TOKEN
+#    说明: Telegram Bot Token
+#    获取方式: 通过 @BotFather 创建机器人后获取
+#    示例: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+#
+# 2. TELEGRAM_TO
+#    说明: Telegram Chat ID（接收消息的聊天ID）
+#    获取方式: 通过 @userinfobot 或 @getidsbot 获取
+#    示例: 123456789
+#
+# 3. GDRIVE_CREDENTIALS
+#    说明: Google Drive 服务账号 JSON 凭证（base64编码）
+#    获取方式:
+#       a) 在 Google Cloud Console 创建服务账号
+#       b) 下载 JSON 密钥文件
+#       c) 使用命令编码: base64 credentials.json -w0
+#    示例: eyJ0eXBlIjoic2VydmljZV9hY2NvdW50Ii...
+#
+# 4. GDRIVE_FOLDER_ID
+#    说明: Google Drive 目标文件夹 ID
+#    获取方式: 在 Google Drive 中打开目标文件夹，从URL中提取ID
+#    示例: 1a2b3c4d5e6f7g8h9i0j
+#
+# 注意事项:
+# - GDRIVE_CREDENTIALS 必须是 base64 编码的完整 JSON 内容
+# - Google Drive 文件夹需要与服务账号邮箱共享（在文件夹设置中）
+# - 确保服务账号已启用 Google Drive API
+# ============================================================================
+
 on:
   schedule:
     # 交易日午盘与收盘（北京时间）
@@ -20,6 +54,8 @@ jobs:
   analyze-stocks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
@@ -59,11 +95,10 @@ jobs:
         # 使用 manual 模式，这样脚本只管生成 PDF，不会报错也不会重复发消息
         python github_stock_bot.py --mode manual --stocks "$STOCKS"
         
-        # 检查是否有PDF文件生成（以本次ZIP为准，避免误计）
+        # 检查是否有PDF文件生成（直接统计PDF文件）
         PDF_COUNT=$(python3 -c "
         import os
         import glob
-        import zipfile
         run_start = int(os.environ.get('RUN_START_TIME', 0))
         # 查找最新报告文件夹
         report_dirs = glob.glob('reports/reports_*')
@@ -71,85 +106,122 @@ jobs:
             print(0)
             exit()
         latest_dir = max(report_dirs, key=os.path.getmtime)
-        zip_paths = glob.glob(os.path.join(latest_dir, 'stock_reports_*.zip'))
-        if not zip_paths:
-            print(0)
-            exit()
-        zip_paths.sort(key=os.path.getmtime, reverse=True)
-        zip_path = zip_paths[0]
-        # 统计 ZIP 内 PDF 数量
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            pdfs = [name for name in zf.namelist() if name.lower().endswith('.pdf')]
-        print(len(pdfs))
+        # 只统计在运行开始后创建的PDF文件（允许60秒误差）
+        pdf_paths = glob.glob(os.path.join(latest_dir, '*.pdf'))
+        pdf_paths = [p for p in pdf_paths if os.path.isfile(p) and os.path.getmtime(p) >= run_start - 60]
+        print(len(pdf_paths))
         ")
         echo "本次运行生成的PDF数量: $PDF_COUNT"
         echo "PDF_COUNT=$PDF_COUNT" >> $GITHUB_OUTPUT
+        
+        # 保存报告目录路径供后续步骤使用
+        REPORT_DIR=$(python3 -c "
+        import os
+        import glob
+        run_start = int(os.environ.get('RUN_START_TIME', 0))
+        report_dirs = glob.glob('reports/reports_*')
+        if report_dirs:
+            latest_dir = max(report_dirs, key=os.path.getmtime)
+            print(os.path.abspath(latest_dir))
+        ")
+        echo "REPORT_DIR=$REPORT_DIR" >> $GITHUB_ENV
+        echo "报告目录: $REPORT_DIR"
     
-    - name: 整理报告文件
+    - name: 发送报告到 Telegram（多文件推送）🚀
       if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0
       run: |
-        mkdir -p final_delivery
-        
-        # 等待一下，确保ZIP文件有时间生成
-        sleep 2
-        
-        # 选择本次运行生成的最新 ZIP（创建时间在运行开始之后）
-        ZIP_PATH=$(python -c "
-        import glob
-        import os
-        import sys
-        run_start = int('${{ env.RUN_START_TIME }}')
-        paths = glob.glob('reports/**/stock_reports_*.zip', recursive=True)
-        paths = [p for p in paths if os.path.isfile(p)]
-        # 只选择在运行开始后创建的ZIP文件（允许60秒误差）
-        paths = [p for p in paths if os.path.getmtime(p) >= run_start - 60]
-        if paths:
-            paths.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-            print(paths[0])
-        ")
-        
-        if [ -z "$ZIP_PATH" ] || [ ! -f "$ZIP_PATH" ]; then
-          echo "❌ 未找到本次运行生成的报告 ZIP"
-          echo "检查 reports 目录:"
-          ls -la reports/*/stock_reports_*.zip 2>/dev/null || echo "未找到ZIP文件"
-          echo "运行开始时间戳: ${{ env.RUN_START_TIME }}"
-          echo "当前时间戳: $(date +%s)"
+        REPORT_DIR="${{ env.REPORT_DIR }}"
+        if [ -z "$REPORT_DIR" ] || [ ! -d "$REPORT_DIR" ]; then
+          echo "❌ 报告目录不存在: $REPORT_DIR"
           exit 1
         fi
         
-        # 验证ZIP文件大小（至少应该有一些内容）
-        ZIP_SIZE=$(stat -f%z "$ZIP_PATH" 2>/dev/null || stat -c%s "$ZIP_PATH" 2>/dev/null || echo "0")
-        if [ "$ZIP_SIZE" -lt 1000 ]; then
-          echo "⚠️ ZIP文件太小 ($ZIP_SIZE 字节)，可能不完整"
+        TELEGRAM_TOKEN="${{ secrets.TELEGRAM_TOKEN }}"
+        TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_TO }}"
+        
+        if [ -z "$TELEGRAM_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+          echo "❌ Telegram配置缺失，请检查secrets: TELEGRAM_TOKEN, TELEGRAM_TO"
           exit 1
         fi
         
-        echo "✅ 使用报告ZIP: $ZIP_PATH (大小: $ZIP_SIZE 字节)"
-        # 提取原始文件名中的时间戳，或生成新的时间戳
-        ZIP_BASENAME=$(basename "$ZIP_PATH")
-        # 如果文件名包含时间戳，保留它；否则生成新的时间戳
-        if [[ "$ZIP_BASENAME" =~ stock_reports_([0-9]{8}_[0-9]{6})\.zip ]]; then
-          TIMESTAMP="${BASH_REMATCH[1]}"
-        else
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        # 统计PDF文件数量
+        PDF_FILES=("$REPORT_DIR"/*.pdf)
+        PDF_COUNT=${#PDF_FILES[@]}
+        
+        if [ $PDF_COUNT -eq 0 ]; then
+          echo "⚠️ 未找到PDF文件"
+          exit 1
         fi
-        ZIP_FILENAME="stock_reports_${TIMESTAMP}.zip"
-        cp "$ZIP_PATH" "final_delivery/${ZIP_FILENAME}"
-        echo "ZIP_FILENAME=${ZIP_FILENAME}" >> $GITHUB_ENV
+        
+        echo "📤 开始发送 $PDF_COUNT 个PDF文件到Telegram..."
+        
+        SUCCESS_COUNT=0
+        FAIL_COUNT=0
+        
+        # 循环发送每个PDF文件
+        for pdf_file in "$REPORT_DIR"/*.pdf; do
+          if [ ! -f "$pdf_file" ]; then
+            continue
+          fi
+          
+          FILENAME=$(basename "$pdf_file")
+          FILE_SIZE=$(stat -f%z "$pdf_file" 2>/dev/null || stat -c%s "$pdf_file" 2>/dev/null || echo "0")
+          FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
+          
+          # Telegram Bot API 文件大小限制为 50MB
+          if [ $FILE_SIZE_MB -gt 50 ]; then
+            echo "⚠️ 跳过文件 $FILENAME (大小: ${FILE_SIZE_MB}MB，超过50MB限制)"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+            continue
+          fi
+          
+          echo "📄 正在发送: $FILENAME (${FILE_SIZE_MB}MB)..."
+          
+          # 发送文件到Telegram
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -F "chat_id=$TELEGRAM_CHAT_ID" \
+            -F "document=@$pdf_file" \
+            "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" 2>&1)
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ 成功发送: $FILENAME"
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+          else
+            echo "❌ 发送失败: $FILENAME (HTTP $HTTP_CODE)"
+            echo "响应: $BODY"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+          fi
+          
+          # 避免请求过快，添加短暂延迟
+          sleep 1
+        done
+        
+        echo ""
+        echo "📊 发送完成统计:"
+        echo "  ✅ 成功: $SUCCESS_COUNT"
+        echo "  ❌ 失败: $FAIL_COUNT"
+        echo "  📄 总计: $PDF_COUNT"
+        
+        # 发送完成通知
+        if [ $SUCCESS_COUNT -gt 0 ]; then
+          curl -s -X POST \
+            -F "chat_id=$TELEGRAM_CHAT_ID" \
+            -F "text=✅ Felix，机器人已完成股票分析报告推送（成功: $SUCCESS_COUNT/$PDF_COUNT）" \
+            "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" > /dev/null
+        fi
+        
+        # 如果有失败的文件，退出码为1
+        if [ $FAIL_COUNT -gt 0 ]; then
+          exit 1
+        fi
 
-    - name: 上传报告到 GitHub Artifact
+    - name: 上传报告到 Google Drive 📁
       if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0
-      uses: actions/upload-artifact@v4
+      uses: adityak74/google-drive-upload-git-action@main
       with:
-        name: stock-reports-${{ github.run_id }}
-        path: |
-          final_delivery/stock_reports_*.zip
-
-    - name: 发送报告到 Telegram 🚀
-      if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0
-      uses: appleboy/telegram-action@master
-      with:
-        to: ${{ secrets.TELEGRAM_CHAT_ID }}
-        token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        document: final_delivery/${{ env.ZIP_FILENAME }}
-        message: "✅ Felix，机器人已完成股票分析报告（ZIP）"
+        filename: ${{ env.REPORT_DIR }}/*.pdf
+        credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
+        parent_folder_id: ${{ secrets.GDRIVE_FOLDER_ID }}

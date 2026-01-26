@@ -5,12 +5,13 @@ PDF报告生成模块
 
 import os
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any, Dict
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import pandas as pd
 
 from src.utils.font_setup import setup_fonts
 from src.utils.logger import get_logger
@@ -97,25 +98,37 @@ def create_pdf_with_market_analysis(
         day_df = stock_data_map.get("day")
         latest_price = None
         data_time = None
+        as_of_ts = None
         prev_close = None
 
         # 优先用 1m -> 5m -> day 最后一条的 Close 作为最新价（数据已按 as_of 裁剪）
         df_1m = stock_data_map.get("1m")
         if df_1m is not None and not df_1m.empty:
             latest_price = df_1m.iloc[-1].get("Close", 0)
-            data_time = format_beijing_time(df_1m.index[-1])
+            as_of_ts = df_1m.index[-1]
+            data_time = format_beijing_time(as_of_ts)
         else:
             df_5m = stock_data_map.get("5m")
             if df_5m is not None and not df_5m.empty:
                 latest_price = df_5m.iloc[-1].get("Close", 0)
-                data_time = format_beijing_time(df_5m.index[-1])
+                as_of_ts = df_5m.index[-1]
+                data_time = format_beijing_time(as_of_ts)
             elif day_df is not None and not day_df.empty:
                 latest_price = day_df.iloc[-1].get("Close", 0)
-                data_time = format_beijing_time(day_df.index[-1])
+                as_of_ts = day_df.index[-1]
+                data_time = format_beijing_time(as_of_ts)
 
         # 涨跌幅：相对于前一日收盘，均取自 as_of 时点的日线
         if latest_price is not None and day_df is not None and len(day_df) >= 2:
-            prev_close = day_df.iloc[-2].get("Close", latest_price)
+            if as_of_ts is not None:
+                as_of_date = pd.Timestamp(as_of_ts).date()
+                mask = day_df.index.date < as_of_date
+                if mask.any():
+                    prev_close = day_df.loc[mask].iloc[-1].get("Close", latest_price)
+                else:
+                    prev_close = day_df.iloc[-2].get("Close", latest_price)
+            else:
+                prev_close = day_df.iloc[-2].get("Close", latest_price)
             change = latest_price - prev_close
             change_percent = (change / prev_close * 100) if prev_close else 0
 

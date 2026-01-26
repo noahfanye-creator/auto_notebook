@@ -295,7 +295,6 @@ jobs:
                     media_body=media,
                     fields="id,name,owners",
                     supportsAllDrives=True,
-                    useContentAndMetadataUsageLimits=True,
                 ).execute()
                 file_id = f.get("id")
                 print(f"  ✅ 上传成功: {name} -> {file_id}")

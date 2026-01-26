@@ -16,11 +16,14 @@ name: 股票分析机器人 🤖
 #    示例: 123456789
 #
 # 3. GDRIVE_CREDENTIALS
-#    说明: Google Drive 服务账号 JSON 凭证（base64编码）
+#    说明: Google Drive 服务账号 JSON 凭证，必须是 base64 编码后的整段字符串（不能存原始 JSON）
 #    获取方式:
-#       a) 在 Google Cloud Console 创建服务账号
-#       b) 下载 JSON 密钥文件
-#       c) 使用命令编码: base64 credentials.json -w0
+#       a) 在 Google Cloud Console 创建服务账号，下载 JSON 密钥文件
+#       b) 在终端执行编码（任选其一，输出为单行无换行）:
+#          Linux:   base64 -w 0 credentials.json
+#          macOS:   base64 -i credentials.json | tr -d '\n'
+#       c) 将完整输出粘贴到 GDRIVE_CREDENTIALS，不要加引号、不要换行
+#    若报错 "illegal base64 data at input byte 0"，说明存的是原始 JSON，请按上述步骤重新 base64 后保存
 #    示例: eyJ0eXBlIjoic2VydmljZV9hY2NvdW50Ii...
 #
 # 4. GDRIVE_FOLDER_ID

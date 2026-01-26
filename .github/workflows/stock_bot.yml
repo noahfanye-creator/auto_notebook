@@ -290,40 +290,55 @@ jobs:
             media = MediaFileUpload(path, mimetype="application/pdf", resumable=True)
             try:
                 # 上传文件（使用 supportsAllDrives=True 支持协作云端硬盘和个人文件夹）
-                f = drive.files().create(body=meta, media_body=media, fields="id,name,owners", supportsAllDrives=True).execute()
+                f = drive.files().create(
+                    body=meta,
+                    media_body=media,
+                    fields="id,name,owners",
+                    supportsAllDrives=True,
+                    useContentAndMetadataUsageLimits=True,
+                ).execute()
                 file_id = f.get("id")
                 print(f"  ✅ 上传成功: {name} -> {file_id}")
                 
                 # 如果指定了个人邮箱，尝试将文件所有权转移给个人账号
                 if owner_email:
                     try:
-                        # 先添加个人邮箱为编辑者
-                        permission = {
-                            "type": "user",
-                            "role": "writer",
-                            "emailAddress": owner_email
-                        }
-                        drive.permissions().create(
-                            fileId=file_id,
-                            body=permission,
-                            fields="id",
-                            supportsAllDrives=True
-                        ).execute()
-                        print(f"    ✓ 已添加 {owner_email} 为编辑者")
-                        
-                        # 尝试转移所有权（需要服务账号有 transferOwnership 权限）
+                        # 先尝试直接转移所有权
                         try:
-                            drive.permissions().update(
+                            owner_permission = {
+                                "type": "user",
+                                "role": "owner",
+                                "emailAddress": owner_email,
+                            }
+                            drive.permissions().create(
                                 fileId=file_id,
-                                permissionId="me",
-                                body={"role": "owner"},
+                                body=owner_permission,
+                                fields="id",
+                                sendNotificationEmail=False,
                                 transferOwnership=True,
-                                supportsAllDrives=True
+                                supportsAllDrives=True,
                             ).execute()
                             print(f"    ✓ 已尝试转移所有权给 {owner_email}")
                         except Exception as transfer_err:
                             # 转移所有权可能失败（服务账号可能没有权限），但不影响文件上传
                             print(f"    ⚠️  所有权转移失败（不影响使用）: {transfer_err}")
+                            # 回退：添加为编辑者
+                            try:
+                                permission = {
+                                    "type": "user",
+                                    "role": "writer",
+                                    "emailAddress": owner_email,
+                                }
+                                drive.permissions().create(
+                                    fileId=file_id,
+                                    body=permission,
+                                    fields="id",
+                                    sendNotificationEmail=False,
+                                    supportsAllDrives=True,
+                                ).execute()
+                                print(f"    ✓ 已添加 {owner_email} 为编辑者")
+                            except Exception as perm_err:
+                                print(f"    ⚠️  权限设置失败（文件已上传）: {perm_err}")
                     except Exception as perm_err:
                         # 权限设置失败不影响文件上传，仅记录警告
                         print(f"    ⚠️  权限设置失败（文件已上传）: {perm_err}")

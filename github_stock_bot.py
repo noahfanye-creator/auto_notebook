@@ -19,19 +19,20 @@ except Exception:
     ak = None
 
 # 导入工具函数模块
-from src.utils.code_normalizer import is_hk_stock, parse_stock_list
-from src.utils.trading_hours import is_china_stock_market_open, is_hk_stock_market_open
-from src.utils.gdrive_uploader import upload_to_gdrive
-from src.notify.telegram import send_telegram_msg
+# noqa: E402 - load_dotenv() 必须在导入前执行
+from src.utils.code_normalizer import is_hk_stock, parse_stock_list  # noqa: E402
+from src.utils.trading_hours import is_china_stock_market_open, is_hk_stock_market_open  # noqa: E402
+from src.utils.gdrive_uploader import upload_to_gdrive  # noqa: E402
+from src.notify.telegram import send_telegram_msg  # noqa: E402
 
 # 导入报告生成模块
-from src.report import process_multiple_stocks, create_zip_archive
+from src.report import process_multiple_stocks, create_zip_archive  # noqa: E402
 
 # 导入配置管理模块
-from src.config import Config
+from src.config import Config  # noqa: E402
 
 # 导入日志模块
-from src.utils.logger import get_logger
+from src.utils.logger import get_logger  # noqa: E402
 
 # 初始化配置和日志
 config = Config()

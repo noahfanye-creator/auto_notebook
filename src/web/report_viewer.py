@@ -7,8 +7,7 @@
 import os
 import glob
 from datetime import datetime
-from pathlib import Path
-from flask import Flask, render_template, send_file, jsonify, request
+from flask import Flask, render_template, send_file, jsonify
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)

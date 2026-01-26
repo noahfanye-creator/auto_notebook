@@ -224,4 +224,4 @@ jobs:
       with:
         filename: ${{ env.REPORT_DIR }}/*.pdf
         credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
-        parent_folder_id: ${{ secrets.GDRIVE_FOLDER_ID }}
+        folderId: ${{ secrets.GDRIVE_FOLDER_ID }}

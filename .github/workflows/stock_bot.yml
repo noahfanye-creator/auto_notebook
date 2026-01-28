@@ -255,7 +255,7 @@ jobs:
         fi
 
     - name: 上传报告到 Google Drive 📁
-      if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0 && secrets.GDRIVE_CLIENT_ID != '' && secrets.GDRIVE_CLIENT_SECRET != '' && secrets.GDRIVE_REFRESH_TOKEN != '' && secrets.GDRIVE_FOLDER_ID != ''
+      if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0
       env:
         GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
         GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
@@ -280,7 +280,8 @@ jobs:
         folder_id = os.environ.get("GDRIVE_FOLDER_ID", "").strip()
 
         if not all([client_id, client_secret, refresh_token, folder_id]):
-            raise SystemExit("缺少 Google Drive OAuth 配置 (CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN 或 FOLDER_ID)")
+            print("⚠️  Google Drive 配置未设置，跳过上传步骤")
+            exit(0)
 
         # 使用 Refresh Token 构建凭证
         creds = Credentials(

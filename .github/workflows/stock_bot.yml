@@ -335,11 +335,42 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: 设置 Chrome
+        uses: browser-actions/setup-chrome@latest
+
       - name: 安装 nlm CLI 工具
         run: |
-          sudo apt update && sudo apt install -y golang
+          sudo apt update
+          sudo apt install -y golang-go
+          # 安装浏览器依赖
+          sudo apt install -y \
+            libatk1.0-0 \
+            libcups2 \
+            libxkbcommon0 \
+            libgbm1 \
+            libpango-1.0-0 \
+            libasound2 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libxss1 \
+            libgconf-2-4 \
+            xvfb
+          # 设置 Go 环境
+          export PATH=$PATH:/usr/lib/go/bin
+          export GOPATH=$HOME/go
+          export PATH=$PATH:$GOPATH/bin
+          # 安装最新版本的 Go（nlm 需要 Go 1.24+）
+          GO_VERSION="1.24.12"
+          wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz
+          export PATH=$PATH:/usr/local/go/bin
+          # 安装 nlm CLI
           go install github.com/tmc/nlm/cmd/nlm@latest
           echo "$HOME/go/bin" >> $GITHUB_PATH
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
 
       - name: 配置 NotebookLM 授权凭证
         run: |

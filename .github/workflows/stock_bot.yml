@@ -15,7 +15,7 @@ name: 股票分析机器人 🤖
 #    获取方式: 通过 @userinfobot 或 @getidsbot 获取
 #    示例: 123456789
 #
-# 3. GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET, GDRIVE_REFRESH_TOKEN
+# 3. GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET, GDRIVE_REFRESH_TOKEN (可选)
 #    说明: Google Drive OAuth 凭证（用于个人账号授权上传，避开服务账号配额限制）
 #    获取方式:
 #       a) 在 Google Cloud Console 创建 OAuth 2.0 客户端 ID（应用类型选 "桌面应用"）
@@ -25,18 +25,46 @@ name: 股票分析机器人 🤖
 #       GDRIVE_CLIENT_ID: 123456789-abc.apps.googleusercontent.com
 #       GDRIVE_CLIENT_SECRET: GOCSPX-abc...
 #       GDRIVE_REFRESH_TOKEN: 1//0abc...
+#    注意: 如果不配置这些 secrets，将跳过 Google Drive 上传步骤
 #
-# 4. GDRIVE_FOLDER_ID
+# 4. GDRIVE_FOLDER_ID (可选)
 #    说明: Google Drive 目标文件夹 ID（支持协作云端硬盘或个人文件夹）
 #    获取方式: 在 Drive 中打开该文件夹，从 URL 的 folders/xxx 提取 ID
 #    示例: 1a2b3c4d5e6f7g8h9i0j
+#    注意: 如果不配置此 secret，将跳过 Google Drive 上传步骤
 #
-# 注意事项:
+# Google Drive 上传注意事项:
 # - 已切换到 OAuth 方案，不再需要 GDRIVE_CREDENTIALS 和 GDRIVE_OWNER_EMAIL
 # - 文件夹配置：
 #     在「我的云端硬盘」创建文件夹，确保授权账号有权访问该文件夹
 #   → 用该文件夹 ID 作为 GDRIVE_FOLDER_ID
 # - 确保已启用 Google Drive API
+# - 如果暂时不需要上传到 Google Drive，可以不配置这些 secrets，workflow 会跳过上传步骤
+#
+# 5. NLM_CONFIG
+#    说明: nlm CLI 的 Google 授权凭证（环境变量格式）
+#    获取方式: 本地执行 `cat ~/.nlm/env` 获取完整内容
+#    示例: 
+#     NLM_COOKIES="__Secure-3PSIDCC=..."
+#     NLM_AUTH_TOKEN="AE_..."
+#     NLM_BROWSER_PROFILE="Profile 3"
+#
+# 6. NOTEBOOKLM_ID
+#    说明: NotebookLM 目标笔记本 ID
+#    获取方式: 
+#       a) 从网页 URL 获取：打开 NotebookLM 笔记本，URL 格式为
+#          https://notebooklm.google.com/notebook/437c839c-5a24-455b-b8da-d35ba8931811
+#          ID 就是 /notebook/ 后面的部分
+#       b) 本地执行 `source ~/.nlm/env && nlm list` 获取
+#    示例: 437c839c-5a24-455b-b8da-d35ba8931811
+#
+# 7. CUSTOM_QUESTION
+#    说明: 定制问答内容
+#    获取方式: 自定义问题，如「分析本次上传的所有PDF报告，汇总核心结论和关键数据」
+#    示例: 分析本次上传的所有PDF报告，汇总核心结论和关键数据
+#
+# 注意: NotebookLM 流程推送使用与股票分析报告相同的 Telegram 配置
+#       即使用 TELEGRAM_BOT_TOKEN 和 TELEGRAM_CHAT_ID（无需额外配置）
 # ============================================================================
 
 on:
@@ -227,7 +255,7 @@ jobs:
         fi
 
     - name: 上传报告到 Google Drive 📁
-      if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0
+      if: steps.run_analysis.outcome == 'success' && steps.run_analysis.outputs.PDF_COUNT > 0 && secrets.GDRIVE_CLIENT_ID != '' && secrets.GDRIVE_CLIENT_SECRET != '' && secrets.GDRIVE_REFRESH_TOKEN != '' && secrets.GDRIVE_FOLDER_ID != ''
       env:
         GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
         GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
@@ -295,3 +323,130 @@ jobs:
                 
         print(f"\n📊 共上传 {len(pdfs)} 个文件")
         PY
+
+  nlm-simple-auto:
+    needs: [analyze-stocks]
+    runs-on: ubuntu-latest
+    if: success() && needs.analyze-stocks.outputs.PDF_COUNT > 0
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 nlm CLI 工具
+        run: |
+          sudo apt update && sudo apt install -y golang
+          go install github.com/tmc/nlm/cmd/nlm@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: 配置 NotebookLM 授权凭证
+        run: |
+          mkdir -p $HOME/.nlm
+          cat > $HOME/.nlm/env << 'EOF'
+          ${{ secrets.NLM_CONFIG }}
+          EOF
+          source $HOME/.nlm/env
+
+      - name: 执行「上传+问答+删源」核心脚本
+        id: nlm-run
+        run: |
+          source $HOME/.nlm/env
+          cat > ./nlm_simple.sh << 'EOF'
+          #!/bin/bash
+          source $HOME/.nlm/env
+          NOTEBOOK_ID="${{ secrets.NOTEBOOKLM_ID }}"
+          CUSTOM_QUESTION="${{ secrets.CUSTOM_QUESTION }}"
+          PDF_DIR=$(python3 -c "
+          import os
+          import glob
+          report_dirs = glob.glob('reports/reports_*')
+          if report_dirs:
+              latest_dir = max(report_dirs, key=os.path.getmtime)
+              print(os.path.abspath(latest_dir))
+          else:
+              print('')
+          ")
+          ANSWER_FILE="./nlm_answer.txt"
+          SOURCE_IDS_FILE="./source_ids.txt"
+          LOG_FILE="./nlm_log.txt"
+
+          > $ANSWER_FILE && > $SOURCE_IDS_FILE && > $LOG_FILE
+          echo "📅 执行时间：$(date +'%Y-%m-%d %H:%M:%S')" >> $LOG_FILE
+          echo "📁 PDF目录：$PDF_DIR" >> $LOG_FILE
+          echo "----------------------------------------" >> $LOG_FILE
+
+          if [ -z "$PDF_DIR" ] || [ ! -d "$PDF_DIR" ]; then
+            echo "❌ 错误：PDF目录$PDF_DIR不存在" >> $LOG_FILE
+            echo "pdf_count=0" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          PDF_FILES=($PDF_DIR/*.pdf)
+          PDF_COUNT=${#PDF_FILES[@]}
+          if [ $PDF_COUNT -eq 0 ]; then
+            echo "❌ 错误：PDF目录下无任何PDF文件" >> $LOG_FILE
+            echo "pdf_count=0" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "🔍 找到可上传PDF数量：$PDF_COUNT个" >> $LOG_FILE
+          echo "pdf_count=$PDF_COUNT" >> $GITHUB_OUTPUT
+
+          echo "🚀 开始批量上传PDF（1秒/个）..." >> $LOG_FILE
+          SUCCESS_UPLOAD=0
+          for pdf in "${PDF_FILES[@]}"; do
+            if [ -f "$pdf" ]; then
+              FILE_NAME=$(basename "$pdf")
+              UPLOAD_RESULT=$(nlm sources add --notebook $NOTEBOOK_ID --file "$pdf" 2>&1)
+              if [[ $UPLOAD_RESULT =~ "added source ([a-zA-Z0-9-]+)" ]]; then
+                SOURCE_ID=${BASH_REMATCH[1]}
+                echo $SOURCE_ID >> $SOURCE_IDS_FILE
+                echo "✅ 上传成功：$FILE_NAME | 来源ID：$SOURCE_ID" >> $LOG_FILE
+                SUCCESS_UPLOAD=$((SUCCESS_UPLOAD+1))
+              else
+                echo "⚠️  上传失败：$FILE_NAME（跳过）" >> $LOG_FILE
+              fi
+              sleep 1
+            fi
+          done
+          echo "📊 上传结果：成功$SUCCESS_UPLOAD个 | 总数量$PDF_COUNT个" >> $LOG_FILE
+          echo "----------------------------------------" >> $LOG_FILE
+
+          echo "🤖 开始执行定制问答..." >> $LOG_FILE
+          if nlm ask --notebook $NOTEBOOK_ID --raw "$CUSTOM_QUESTION" > $ANSWER_FILE 2>&1; then
+            echo "✅ 问答成功，结果已保存" >> $LOG_FILE
+          else
+            echo "❌ 问答失败，查看日志排查" >> $LOG_FILE
+            echo "NotebookLM问答执行失败，请查看GitHub Action运行日志" > $ANSWER_FILE
+          fi
+          echo "----------------------------------------" >> $LOG_FILE
+
+          echo "🗑️  开始批量删除本次上传来源..." >> $LOG_FILE
+          if [ -s $SOURCE_IDS_FILE ] && [ $SUCCESS_UPLOAD -gt 0 ]; then
+            SOURCE_IDS=$(cat $SOURCE_IDS_FILE | tr '\n' ' ')
+            nlm sources delete --notebook $NOTEBOOK_ID $SOURCE_IDS >/dev/null 2>&1
+            echo "✅ 批量删除完成：共删除$SUCCESS_UPLOAD个本次上传来源" >> $LOG_FILE
+          else
+            echo "⚠️  无有效来源ID，跳过删除" >> $LOG_FILE
+          fi
+
+          cat $LOG_FILE
+          EOF
+          chmod +x ./nlm_simple.sh && ./nlm_simple.sh
+
+      - name: Telegram Bot 推送最终结果
+        run: |
+          PDF_COUNT=${{ steps.nlm-run.outputs.pdf_count }}
+          RUN_TIME=$(date +'%Y-%m-%d %H:%M:%S')
+          ANSWER=$(cat ./nlm_answer.txt | sed 's/"/\\"/g' | tr '\n' '\\n')
+          MESSAGE="📊【NotebookLM自动化执行结果】
+⏰ 执行时间：$RUN_TIME
+🔢 本次上传PDF：$PDF_COUNT个
+🗑️  已自动删除本次上传所有来源
+💡 核心回答：
+$ANSWER"
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "chat_id": "${{ secrets.TELEGRAM_CHAT_ID }}",
+              "text": "'"$MESSAGE"'",
+              "parse_mode": "markdown",
+              "disable_web_page_preview": true
+            }'

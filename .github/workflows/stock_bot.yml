@@ -436,12 +436,7 @@ jobs:
           PDF_COUNT=${{ steps.nlm-run.outputs.pdf_count }}
           RUN_TIME=$(date +'%Y-%m-%d %H:%M:%S')
           ANSWER=$(cat ./nlm_answer.txt | sed 's/"/\\"/g' | tr '\n' '\\n')
-          MESSAGE="📊【NotebookLM自动化执行结果】
-⏰ 执行时间：$RUN_TIME
-🔢 本次上传PDF：$PDF_COUNT个
-🗑️  已自动删除本次上传所有来源
-💡 核心回答：
-$ANSWER"
+          MESSAGE="📊【NotebookLM自动化执行结果】\n⏰ 执行时间：$RUN_TIME\n🔢 本次上传PDF：$PDF_COUNT个\n🗑️  已自动删除本次上传所有来源\n💡 核心回答：\n$ANSWER"
           curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -H "Content-Type: application/json" \
             -d '{

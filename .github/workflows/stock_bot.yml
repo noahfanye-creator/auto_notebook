@@ -342,21 +342,20 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y golang-go
-          # 安装浏览器依赖
+          # 安装浏览器依赖（Ubuntu 24.04 兼容）
           sudo apt install -y \
             libatk1.0-0 \
             libcups2 \
             libxkbcommon0 \
             libgbm1 \
             libpango-1.0-0 \
-            libasound2 \
+            libasound2t64 \
             libxcomposite1 \
             libxdamage1 \
             libxfixes3 \
             libxrandr2 \
             libxss1 \
-            libgconf-2-4 \
-            xvfb
+            xvfb || true
           # 设置 Go 环境
           export PATH=$PATH:/usr/lib/go/bin
           export GOPATH=$HOME/go

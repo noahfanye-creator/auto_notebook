@@ -335,134 +335,63 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 设置 Chrome
-        uses: browser-actions/setup-chrome@latest
-
-      - name: 安装 nlm CLI 工具
+      - name: 安装 Python 依赖
         run: |
-          sudo apt update
-          sudo apt install -y golang-go
-          # 安装浏览器依赖（Ubuntu 24.04 兼容）
-          sudo apt install -y \
-            libatk1.0-0 \
-            libcups2 \
-            libxkbcommon0 \
-            libgbm1 \
-            libpango-1.0-0 \
-            libasound2t64 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxfixes3 \
-            libxrandr2 \
-            libxss1 \
-            xvfb || true
-          # 设置 Go 环境
-          export PATH=$PATH:/usr/lib/go/bin
-          export GOPATH=$HOME/go
-          export PATH=$PATH:$GOPATH/bin
-          # 安装最新版本的 Go（nlm 需要 Go 1.24+）
-          GO_VERSION="1.24.12"
-          wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz
-          sudo rm -rf /usr/local/go
-          sudo tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz
-          export PATH=$PATH:/usr/local/go/bin
-          # 安装 nlm CLI
-          go install github.com/tmc/nlm/cmd/nlm@latest
-          echo "$HOME/go/bin" >> $GITHUB_PATH
-          echo "/usr/local/go/bin" >> $GITHUB_PATH
+          pip install requests
 
-      - name: 配置 NotebookLM 授权凭证
-        run: |
-          mkdir -p $HOME/.nlm
-          cat > $HOME/.nlm/env << 'EOF'
-          ${{ secrets.NLM_CONFIG }}
-          EOF
-          source $HOME/.nlm/env
-
-      - name: 执行「上传+问答+删源」核心脚本
+      - name: 执行 NotebookLM 自动化（暂时跳过）
         id: nlm-run
         run: |
-          source $HOME/.nlm/env
-          cat > ./nlm_simple.sh << 'EOF'
-          #!/bin/bash
-          source $HOME/.nlm/env
-          NOTEBOOK_ID="${{ secrets.NOTEBOOKLM_ID }}"
-          CUSTOM_QUESTION="${{ secrets.CUSTOM_QUESTION }}"
-          PDF_DIR=$(python3 -c "
+          python3 << 'PYTHON_SCRIPT'
           import os
           import glob
+          from pathlib import Path
+
+          # 查找最新 PDF 目录
           report_dirs = glob.glob('reports/reports_*')
-          if report_dirs:
-              latest_dir = max(report_dirs, key=os.path.getmtime)
-              print(os.path.abspath(latest_dir))
-          else:
-              print('')
-          ")
-          ANSWER_FILE="./nlm_answer.txt"
-          SOURCE_IDS_FILE="./source_ids.txt"
-          LOG_FILE="./nlm_log.txt"
+          if not report_dirs:
+              print("❌ 错误：未找到报告目录")
+              print("pdf_count=0")
+              exit(1)
+          
+          pdf_dir = max(report_dirs, key=os.path.getmtime)
+          pdf_files = list(Path(pdf_dir).glob('*.pdf'))
+          
+          if not pdf_files:
+              print("❌ 错误：PDF目录下无任何PDF文件")
+              print("pdf_count=0")
+              exit(1)
 
-          > $ANSWER_FILE && > $SOURCE_IDS_FILE && > $LOG_FILE
-          echo "📅 执行时间：$(date +'%Y-%m-%d %H:%M:%S')" >> $LOG_FILE
-          echo "📁 PDF目录：$PDF_DIR" >> $LOG_FILE
-          echo "----------------------------------------" >> $LOG_FILE
+          pdf_count = len(pdf_files)
+          print(f"🔍 找到PDF数量：{pdf_count}个")
+          print(f"pdf_count={pdf_count}")
+          print("")
+          print("⚠️  注意：NotebookLM 自动化功能暂时不可用")
+          print("原因：nlm CLI 工具在 Linux 环境中无法编译（缺少 macOS/Windows 特定的浏览器函数）")
+          print("")
+          print("解决方案：")
+          print("1. 手动在 NotebookLM Web UI 中上传 PDF 并提问")
+          print("2. 或等待 nlm CLI 添加 Linux 支持")
+          print("3. 或使用 macOS runner（如果 GitHub 提供）")
+          print("")
+          
+          # 生成提示信息
+          answer = """⚠️ NotebookLM 自动化功能暂时不可用
 
-          if [ -z "$PDF_DIR" ] || [ ! -d "$PDF_DIR" ]; then
-            echo "❌ 错误：PDF目录$PDF_DIR不存在" >> $LOG_FILE
-            echo "pdf_count=0" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          PDF_FILES=($PDF_DIR/*.pdf)
-          PDF_COUNT=${#PDF_FILES[@]}
-          if [ $PDF_COUNT -eq 0 ]; then
-            echo "❌ 错误：PDF目录下无任何PDF文件" >> $LOG_FILE
-            echo "pdf_count=0" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          echo "🔍 找到可上传PDF数量：$PDF_COUNT个" >> $LOG_FILE
-          echo "pdf_count=$PDF_COUNT" >> $GITHUB_OUTPUT
+原因：nlm CLI 工具在 Linux 环境中无法编译
 
-          echo "🚀 开始批量上传PDF（1秒/个）..." >> $LOG_FILE
-          SUCCESS_UPLOAD=0
-          for pdf in "${PDF_FILES[@]}"; do
-            if [ -f "$pdf" ]; then
-              FILE_NAME=$(basename "$pdf")
-              UPLOAD_RESULT=$(nlm sources add --notebook $NOTEBOOK_ID --file "$pdf" 2>&1)
-              if [[ $UPLOAD_RESULT =~ "added source ([a-zA-Z0-9-]+)" ]]; then
-                SOURCE_ID=${BASH_REMATCH[1]}
-                echo $SOURCE_ID >> $SOURCE_IDS_FILE
-                echo "✅ 上传成功：$FILE_NAME | 来源ID：$SOURCE_ID" >> $LOG_FILE
-                SUCCESS_UPLOAD=$((SUCCESS_UPLOAD+1))
-              else
-                echo "⚠️  上传失败：$FILE_NAME（跳过）" >> $LOG_FILE
-              fi
-              sleep 1
-            fi
-          done
-          echo "📊 上传结果：成功$SUCCESS_UPLOAD个 | 总数量$PDF_COUNT个" >> $LOG_FILE
-          echo "----------------------------------------" >> $LOG_FILE
+解决方案：
+1. 手动在 NotebookLM Web UI 中上传 PDF 并提问
+2. 或等待 nlm CLI 添加 Linux 支持
+3. 或使用 macOS runner（如果 GitHub 提供）
 
-          echo "🤖 开始执行定制问答..." >> $LOG_FILE
-          if nlm ask --notebook $NOTEBOOK_ID --raw "$CUSTOM_QUESTION" > $ANSWER_FILE 2>&1; then
-            echo "✅ 问答成功，结果已保存" >> $LOG_FILE
-          else
-            echo "❌ 问答失败，查看日志排查" >> $LOG_FILE
-            echo "NotebookLM问答执行失败，请查看GitHub Action运行日志" > $ANSWER_FILE
-          fi
-          echo "----------------------------------------" >> $LOG_FILE
-
-          echo "🗑️  开始批量删除本次上传来源..." >> $LOG_FILE
-          if [ -s $SOURCE_IDS_FILE ] && [ $SUCCESS_UPLOAD -gt 0 ]; then
-            SOURCE_IDS=$(cat $SOURCE_IDS_FILE | tr '\n' ' ')
-            nlm sources delete --notebook $NOTEBOOK_ID $SOURCE_IDS >/dev/null 2>&1
-            echo "✅ 批量删除完成：共删除$SUCCESS_UPLOAD个本次上传来源" >> $LOG_FILE
-          else
-            echo "⚠️  无有效来源ID，跳过删除" >> $LOG_FILE
-          fi
-
-          cat $LOG_FILE
-          EOF
-          chmod +x ./nlm_simple.sh && ./nlm_simple.sh
+PDF 文件已生成，可以手动上传到 NotebookLM。"""
+          
+          with open('./nlm_answer.txt', 'w', encoding='utf-8') as f:
+              f.write(answer)
+          
+          print("✅ 已生成提示信息到 nlm_answer.txt")
+          PYTHON_SCRIPT
 
       - name: Telegram Bot 推送最终结果
         run: |
